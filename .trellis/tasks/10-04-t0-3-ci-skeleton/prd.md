@@ -22,3 +22,10 @@ GitHub Actions 门禁骨架，空架子 PR 触发全绿。CI 是门禁而非形�
 ## Notes
 
 - eval-regression.yml 属 M3，不在本任务范围。
+
+## Progress (2026-10-05)
+
+- `ci.yml`（lint→unit-test→build 串行）已在此前落盘。
+- 本次补齐：`scripts/install-tools.sh`（kind/kubectl/helm 钉版本、幂等，本地/CI 共用，满足 aegis-ci B-4）；`env-up.sh` 新增 `--cluster-only` 模式；`.github/workflows/kind-smoke.yml`（PR 触发：install-tools → env-up --cluster-only → env-down --force 幂等清理）。
+- 已验：bash -n、install-tools 幂等 skip、env-up --cluster-only 前置 fail-fast(exit 2)、kind-smoke.yml YAML 合法。
+- **待 GitHub 远端**：「空架子 PR 触发全绿」需仓库推送远端后才能实跑验证（当前无 remote）。

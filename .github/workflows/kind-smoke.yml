@@ -1,0 +1,47 @@
+# kind-smoke.yml —— kind 集群冒烟（workflows/README.md §4 workflow 二）。
+# 守的不变量/失败模式：I10（失效语义可验证）、F14（环境可复现）——CI 唯一集群是 kind，禁止真实集群/凭据。
+# 骨架期（T0.3）：起集群 + 节点就绪 全绿即可；CRD apply + 状态机冒烟 M1 接入、三连演示 M2 接入（见 §4）。
+# 门禁起点：M2 起必过（workflows README §2）；骨架期为信息性绿。
+
+name: kind-smoke
+
+on:
+  pull_request:
+
+# 最小权限（aegis-ci 编写规则第 2 条）。
+permissions:
+  contents: read
+
+# 同一 PR 分组 + 取消在途（编写规则第 3 条）。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kind-smoke:
+    name: kind-smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5 # v5.0.0（官方 action 可跟 major）
+
+      # kind/kubectl/helm 安装与本地共用同一份脚本（aegis-ci 红线 B-4，禁止第二份安装逻辑）。
+      - name: Install kind/kubectl/helm (shared script)
+        shell: bash
+        run: |
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+          INSTALL_DIR="${HOME}/.local/bin" bash scripts/install-tools.sh
+          kind version && kubectl version --client && helm version --short
+
+      # kind 集群冒烟：复用 env-up.sh 的 --cluster-only（同一集群起建路径，不写第二份）。
+      # ubuntu-latest runner 自带并运行 docker，满足 env-up 的 docker 前置检查。
+      - name: kind cluster up (cluster-only smoke)
+        shell: bash
+        run: bash scripts/env-up.sh --cluster-only
+
+      # M1 起在此追加：apply crds/ + controller 状态机冒烟；M2 起追加三连演示（workflows README §4.2）。
+
+      # 幂等销毁（即使失败也清理，避免泄漏）。
+      - name: teardown (idempotent)
+        if: always()
+        shell: bash
+        run: bash scripts/env-down.sh --force

@@ -19,8 +19,13 @@ OBS_NS="observability"
 
 # 默认 Phase 0 组件序列（deploy/kind/README.md §4.4；kagent=T0.4、agent-sandbox=T1.9 不在本骨架内）。
 DEFAULT_COMPONENTS=(chaos-mesh prometheus argocd)
-COMPONENTS=("$@")
-[ "${#COMPONENTS[@]}" -eq 0 ] && COMPONENTS=("${DEFAULT_COMPONENTS[@]}")
+CLUSTER_ONLY=0
+COMPONENTS=()
+for a in "$@"; do
+  if [ "$a" = "--cluster-only" ]; then CLUSTER_ONLY=1; else COMPONENTS+=("$a"); fi
+done
+# 缺省装全部 Phase 0 组件；--cluster-only 时只起集群（CI kind-smoke 骨架用，组件安装属完整环境）。
+if [ "$CLUSTER_ONLY" -eq 0 ] && [ "${#COMPONENTS[@]}" -eq 0 ]; then COMPONENTS=("${DEFAULT_COMPONENTS[@]}"); fi
 
 want() { local c; for c in "${COMPONENTS[@]}"; do [ "$c" = "$1" ] && return 0; done; return 1; }
 
@@ -123,6 +128,14 @@ main() {
   local t0=$SECONDS
   preflight
   cluster_up
+  if [ "$CLUSTER_ONLY" -eq 1 ]; then
+    # CI kind-smoke 骨架路径：只验证集群起得来、节点就绪；CRD/状态机冒烟 M1 起接入（workflows README §4）。
+    kubectl wait --for=condition=Ready nodes --all --timeout=120s >/dev/null \
+      || die 3 node_ready timeout "kind 节点 120s 内未 Ready"
+    info done "mode=cluster-only" "result=green" "duration_ms=$(( (SECONDS - t0) * 1000 ))"
+    echo "cluster-only 冒烟通过：$(kubectl get nodes --no-headers 2>/dev/null | wc -l) 节点 Ready"
+    return 0
+  fi
   want chaos-mesh && install_chaos_mesh
   want prometheus && install_prometheus
   want argocd     && install_argocd
