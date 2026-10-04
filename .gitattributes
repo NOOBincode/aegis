@@ -1,0 +1,26 @@
+# 行尾纪律（落地方案附录 B）：脚本与配置一律 LF，Windows 克隆不产生 CRLF
+* text=auto
+
+*.sh        text eol=lf
+Makefile    text eol=lf
+*.mk        text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.go        text eol=lf
+*.py        text eol=lf
+*.rego      text eol=lf
+*.json      text eol=lf
+
+*.md        text
+*.png       binary
+*.jpg       binary
+
+# Trellis: append-only developer journals should merge cleanly across
+# parallel sessions/worktrees — each session only appends a new block, so
+# there is nothing to actually conflict on.
+#
+# Do NOT add a rule for workspace/*/index.md here — it is fully regenerated
+# every session, so a real conflict there is expected and safe to resolve by
+# picking either side (task state lives in task.json, not index.md). See
+# .trellis/spec/cli/backend/directory-structure.md for details.
+.trellis/workspace/*/journal-*.md merge=union

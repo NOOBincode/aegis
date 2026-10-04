@@ -1,0 +1,5 @@
+// Package authority 是 aegis 限界上下文：所有权图谱 + 变更归因，M2 T2.9。
+//
+// 组织约定（internal/README.md）：domain（纯领域）+ ports（出站接口）+ service（用例编排）
+// 为包内文件分层；禁止 import k8s.io/sigs.k8s.io/OPA/MCP SDK 与 internal/adapters（depguard 机检）。
+package authority

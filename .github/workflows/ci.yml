@@ -1,0 +1,85 @@
+# ci.yml —— aegis 始终必过门禁（T0.3 骨架）。
+# 设计说明：.github/workflows/README.md §4 workflow 一；编写规则：.agents/skills/aegis-ci/SKILL.md。
+# 守的不变量/失败模式：depguard 依赖方向机检（铁律）、I8 前置（代码层可机检部分）、F14（可复现构建）。
+# 三 job 串行门禁：lint → unit-test → build，前序红则后续不跑、PR 不可合并。
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# 最小权限（aegis-ci 编写规则第 2 条）。
+permissions:
+  contents: read
+
+# 同一 PR 分组 + 取消在途（编写规则第 3 条）。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # golangci-lint 版本与本地 `make lint` 对齐，保持“本地与 CI 同一配置同一二进制”。
+  # 单一事实源为 deploy/versions.md（当前 TBD，W1 核验后钉死）；此处暂钉本地已核验版本。
+  GOLANGCI_LINT_VERSION: v2.14.0
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5 # v5.0.0（官方 action 可跟 major）
+      - uses: actions/setup-go@v6 # v6.0.0；Go 版本从 go.work 读取（编写规则第 5 条）
+        with:
+          go-version-file: go.work
+          cache-dependency-path: |
+            go.work.sum
+            go.sum
+            **/go.sum
+      - name: Install golangci-lint (pinned)
+        shell: bash
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
+            | sh -s -- -b "$(go env GOPATH)/bin" "${GOLANGCI_LINT_VERSION}"
+          golangci-lint version
+      # 跑根 Makefile lint 目标：.golangci.yml 是唯一事实源（含 depguard 架构规则）。
+      - name: make lint
+        shell: bash
+        run: make lint
+
+  unit-test:
+    name: unit-test
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v5 # v5.0.0
+      - uses: actions/setup-go@v6 # v6.0.0
+        with:
+          go-version-file: go.work
+          cache-dependency-path: |
+            go.work.sum
+            go.sum
+            **/go.sum
+      # 表驱动单测 + -race 默认开启；goleak 由并发用例自管（Makefile test 目标逐 module 跑）。
+      - name: make test
+        shell: bash
+        run: make test
+
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    needs: unit-test
+    steps:
+      - uses: actions/checkout@v5 # v5.0.0
+      - uses: actions/setup-go@v6 # v6.0.0
+        with:
+          go-version-file: go.work
+          cache-dependency-path: |
+            go.work.sum
+            go.sum
+            **/go.sum
+      # 全部 cmd/* 与 mcp-servers/* 产物可构建（go.work 聚合）。
+      - name: make build
+        shell: bash
+        run: make build

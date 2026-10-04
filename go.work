@@ -1,0 +1,17 @@
+// aegis monorepo Go workspace（落地方案 T0.1）。
+// 库代码（api/、internal/、policies/）属根 module；每个 cmd/* 与 mcp-servers/* 进程为独立 module。
+go 1.26
+
+use (
+	.
+	./cmd/aegis-cli
+	./cmd/controller
+	./cmd/gatekeeper
+	./mcp-servers/events
+	./mcp-servers/gitops
+	./mcp-servers/k8s-read
+	./mcp-servers/k8s-write
+	./mcp-servers/logs
+	./mcp-servers/prom
+	./mcp-servers/runbook
+)

@@ -1,0 +1,77 @@
+# .golangci.yml —— aegis lint 唯一事实源（aegis-go-quality）。
+# 本地 `make lint` 与 CI 跑同一配置；golangci-lint 版本钉死见 deploy/versions.md。
+# v2 配置格式（golangci-lint v2.x）。
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - depguard # 架构依赖方向机检（aegis-ddd-layout 五铁律）
+    - errcheck # 禁止吞错（%w 包装见 aegis-go-quality）
+    - gosec    # 安全 lint；L2 安全包不设 nolint 例外
+    - govet
+    - staticcheck
+    - revive
+    - gocritic
+    - misspell
+    - unparam
+    - ineffassign
+    - unconvert
+  settings:
+    errcheck:
+      check-type-assertions: true # 类型断言必须接 ok，防 panic（aegis-go-quality 防御性取向）
+    depguard:
+      rules:
+        # 铁律 2 领域纯净：限界上下文（非测试文件）禁止 import 基础设施。
+        # 注意：deny pkg 为前缀匹配（k8s.io 覆盖其全部子树，v2.14 实测 glob ** 无效）；
+        # files 多行语义 = 正条并集 − 负条（depguard 实测结论，勿改回 && 内联写法）。
+        ctx-no-infra-deps:
+          files:
+            - "**/internal/risk/**"
+            - "**/internal/policy/**"
+            - "**/internal/approval/**"
+            - "**/internal/rollback/**"
+            - "**/internal/breaker/**"
+            - "**/internal/authority/**"
+            - "**/internal/sanitize/**"
+            - "**/internal/audit/**"
+            - "**/internal/session/**"
+            - "!**/*_test.go"
+          deny:
+            - pkg: k8s.io
+              desc: "上下文禁止依赖 k8s 客户端：经 ports 抽象，由 internal/adapters/k8s 实现（铁律 2）"
+            - pkg: sigs.k8s.io
+              desc: "controller-runtime 只允许出现在 internal/controller 与 cmd（铁律 2/3）"
+            - pkg: github.com/open-policy-agent
+              desc: "OPA 是适配器实现细节，只允许出现在 internal/adapters/opa"
+            - pkg: github.com/mark3labs
+              desc: "MCP SDK 只允许出现在 internal/mcpserver 与 mcp-servers 工具层"
+        # 上下文与工具层禁止反向依赖适配器；适配器只能被 cmd（装配）与 internal/controller（reconcile）引用。
+        no-reverse-adapters:
+          files:
+            - "**/internal/risk/**"
+            - "**/internal/policy/**"
+            - "**/internal/approval/**"
+            - "**/internal/rollback/**"
+            - "**/internal/breaker/**"
+            - "**/internal/authority/**"
+            - "**/internal/sanitize/**"
+            - "**/internal/audit/**"
+            - "**/internal/session/**"
+            - "!**/*_test.go"
+          deny:
+            - pkg: github.com/aegis-dev/aegis/internal/adapters
+              desc: "上下文与工具层禁止反向依赖适配器（铁律 1 依赖方向）"
+
+formatters:
+  enable:
+    - goimports
+
+output:
+  formats:
+    text:
+      path: stdout
+      colors: true

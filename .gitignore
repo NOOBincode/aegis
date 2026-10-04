@@ -1,0 +1,56 @@
+# Go
+bin/
+*.test
+*.out
+coverage.txt
+/vendor/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# 环境与密钥（严禁入库）
+.env
+.env.*
+*.kubeconfig
+kubeconfig
+
+# 本地运行产物
+/data/
+/tmp/
+*.log
+
+# IDE / 操作系统
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 工具本地集成（可由 trellis update 再生；含本地 hooks/settings，不入库）
+/.claude
+# 注：.github（CI/PR模板）、.agents（项目skill）、.trellis（任务/规范）、agent/（L3源码）均为项目资产，必须入库，勿加忽略。
+
+# Trellis 市场第三方 golang skill 包（来源 samber/cc-skills-golang）。
+# 未过供应链评审的第三方内容不入库（威胁模型 AS-10 依赖纪律）；可复现性由 skills-lock.json 保证，
+# 需要时 `trellis update` 重新拉取。aegis 自有 4 个 aegis-* skill 仍入库。
+/.agents/skills/golang-*/
+# 同一 skill 包被 trellis 误装进 aegis L3 源码目录 agent/ 下的副本
+# （aegis 的 agent/ 设计无 skills/ 子目录，见 agent/README.md §1/§4 —— 该目录是 kagent 配置层 + prompt 资产）。
+/agent/skills/
+
+# Go 裸 `go build` 落在包目录的可执行产物（正规输出应走 bin/，已在上面忽略）
+cmd/gatekeeper/gatekeeper
+cmd/aegis-cli/aegis-cli
+cmd/controller/controller
+mcp-servers/events/events
+mcp-servers/gitops/gitops
+mcp-servers/k8s-read/k8s-read
+mcp-servers/k8s-write/k8s-write
+mcp-servers/logs/logs
+mcp-servers/prom/prom
+mcp-servers/runbook/runbook
