@@ -1,0 +1,59 @@
+# OTel collector 管道配置（deploy/observability/README.md §4.1）。
+# traces → Langfuse（LLM 调用链回放）；metrics → Prometheus（抓取端点）；logs → stdout（MVP 从简）。
+# 纪律：只含管道与采样/脱敏参数，不含放行规则（判定永远在闸门，§7）。
+# Langfuse 接入三要素（host/public key/secret key）只经环境变量注入，不进 git（§4.1）。
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch: {}
+  # 资源标注：所有 span 打上 aegis 来源，便于 Langfuse 按服务/来源检索。
+  resource/aegis:
+    attributes:
+      - key: aegis.platform
+        value: aegis
+        action: upsert
+
+exporters:
+  # traces → Langfuse v3 OTel 端点（/api/public/otel），Basic Auth = base64(publicKey:secretKey)，
+  # 经环境变量 LANGFUSE_OTEL_BASIC_AUTH 注入（.env，不入库）。
+  otlphttp/langfuse:
+    endpoint: http://langfuse-web:3000/api/public/otel
+    headers:
+      Authorization: Basic ${env:LANGFUSE_OTEL_BASIC_AUTH}
+  # metrics → Prometheus 抓取端点（Prometheus 侧 scrape 此端点；T0.2 集群 Prometheus 接入时对齐）。
+  prometheus:
+    endpoint: 0.0.0.0:8889
+  # logs → 标准输出（MVP 从简；后续接日志系统属接缝，不在本期范围）。
+  debug:
+    verbosity: basic
+
+service:
+  telemetry:
+    metrics:
+      # collector 自观测（§6：接收/导出速率、丢弃计数）。
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [resource/aegis, batch]
+      exporters: [otlphttp/langfuse]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]

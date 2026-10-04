@@ -1,0 +1,30 @@
+# kind 集群配置 —— aegis 本地/CI 唯一集群（deploy/kind/README.md §4.1/§4.2/§4.3）。
+# 拓扑：1 control-plane + 2 worker（内存紧张可减 1+1，但控制器干扰类场景 F11/F13 演练打折）。
+# 端口映射：宿主端口 ↔ 集群 NodePort 服务（同一仓库只保留这一份映射表）。
+# 镜像加速：containerd registry mirror 注入（CI 不假设代理可达，依赖镜像源本身可达性）。
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: aegis
+
+# 节点镜像版本由 scripts/env-up.sh 从 deploy/versions.env 注入（kindest/node），此处不写死。
+
+containerdConfigPatches:
+  # docker.io 镜像加速；镜像源值由 env-up.sh 渲染前替换 __REGISTRY_MIRROR_DOCKER_IO__ 占位符。
+  - |-
+    [plugins."io.containerd.grpc.v1.cri".registry.mirrors."docker.io"]
+      endpoint = ["__REGISTRY_MIRROR_DOCKER_IO__", "https://registry-1.docker.io"]
+
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      # kube-apiserver 的 6443 由 kind 自动映射，无需在此声明。
+      - containerPort: 30090   # Prometheus（指标调试）
+        hostPort: 30090
+      - containerPort: 30300   # Grafana（闸门核心看板）
+        hostPort: 30300
+      - containerPort: 30443   # ArgoCD（R2 GitOps 通道演示，T2.10）
+        hostPort: 30443
+      - containerPort: 30880   # kagent UI（Agent 声明与调试入口，T0.4）
+        hostPort: 30880
+  - role: worker
+  - role: worker

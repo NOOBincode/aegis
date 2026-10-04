@@ -16,6 +16,7 @@ venv/
 # 环境与密钥（严禁入库）
 .env
 .env.*
+!**/.env.example
 *.kubeconfig
 kubeconfig
 

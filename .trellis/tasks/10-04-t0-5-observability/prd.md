@@ -24,3 +24,8 @@
 ## Notes
 
 - 先 docker-compose 从简；集群内迁移留到 M2 后。
+
+## Progress (2026-10-05)
+
+已落盘并通过 YAML 校验：`deploy/observability/docker-compose.yml`（Langfuse v3 全栈 + OTel collector）、`otel-collector-config.yaml`(traces→Langfuse / metrics→Prometheus / logs→stdout)、`.env.example`（密钥模板，真值走 gitignore 的 .env）。
+**待 docker**:`docker compose up` + 手测 HTTP trace 在 Langfuse 可见；各镜像 tag 待核验。

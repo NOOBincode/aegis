@@ -1,0 +1,142 @@
+# deploy/observability/docker-compose.yml —— T0.5 观测基座（从简：docker-compose 先行，M2 后可迁集群内）。
+# 组成：Langfuse v3 自托管（web + worker + postgres + clickhouse + valkey + minio）+ OTel collector。
+# 设计出处：deploy/observability/README.md §4.1/§4.2。
+#
+# 版本纪律：镜像 tag 在此钉死并镜像到 deploy/versions.md / versions.env（单一事实源），两者须同步；
+#            secrets 只经 .env 注入（.env 已 gitignore，模板见 .env.example）。
+# 启动：cp .env.example .env 填值 → docker compose --env-file .env up -d
+# 完成判据（§8）：一次手测 HTTP 调用的 trace 在 Langfuse 可见（http://localhost:3000）。
+name: aegis-observability
+
+services:
+  # ---------- Langfuse 数据面 ----------
+  db:
+    image: postgres:16.4-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      POSTGRES_DB: langfuse
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.12.2-alpine
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: langfuse
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?set in .env}
+    volumes:
+      - chdata:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8123/ping || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  valkey:
+    image: valkey/valkey:8.0-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:RELEASE.2025-01-20T14-49-07Z
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set in .env}
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ---------- Langfuse 应用面 ----------
+  langfuse-web:
+    image: langfuse/langfuse:3.29.0
+    restart: unless-stopped
+    depends_on:
+      db: {condition: service_healthy}
+      clickhouse: {condition: service_healthy}
+      valkey: {condition: service_healthy}
+      minio: {condition: service_healthy}
+    ports:
+      - "3000:3000"   # Langfuse UI / API / OTel 端点
+    environment: &langfuse-env
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/langfuse
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      REDIS_CONNECTION_STRING: redis://valkey:6379
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+      SALT: ${LANGFUSE_SALT:?set in .env}
+      NEXTAUTH_SECRET: ${LANGFUSE_SALT}
+      NEXTAUTH_URL: http://localhost:3000
+      TELEMETRY_ENABLED: "false"
+      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "false"
+      # 初始组织/项目/用户/密钥（幂等，仅首次生效）。
+      LANGFUSE_INIT_ORG_ID: aegis
+      LANGFUSE_INIT_ORG_NAME: aegis
+      LANGFUSE_INIT_PROJECT_ID: aegis
+      LANGFUSE_INIT_PROJECT_NAME: aegis
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL}
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD}
+      LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME}
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3.29.0
+    restart: unless-stopped
+    depends_on:
+      db: {condition: service_healthy}
+      clickhouse: {condition: service_healthy}
+      valkey: {condition: service_healthy}
+      minio: {condition: service_healthy}
+    environment: *langfuse-env
+
+  # ---------- OTel collector（traces→Langfuse，metrics→Prometheus，logs→stdout）----------
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.120.0
+    restart: unless-stopped
+    depends_on:
+      - langfuse-web
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+    environment:
+      LANGFUSE_OTEL_BASIC_AUTH: ${LANGFUSE_OTEL_BASIC_AUTH:?set in .env}
+    ports:
+      - "4317:4317"   # OTLP gRPC 接收（各进程埋点指向）
+      - "4318:4318"   # OTLP HTTP 接收
+      - "8889:8889"   # Prometheus 抓取端点（导出指标）
+      - "8888:8888"   # collector 自观测指标
+
+volumes:
+  pgdata:
+  chdata:
+  miniodata:

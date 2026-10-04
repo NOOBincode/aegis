@@ -28,3 +28,9 @@
 
 - 先写脚本与清单（纯文件），验证标记为 pending-docker。
 - 版本号一律以 `deploy/versions.md` 为单一事实源，不在脚本里写死第二份。
+
+## Progress (2026-10-05)
+
+已落盘并本地验证：`scripts/lib/common.sh`（骨架四要素）、`scripts/env-up.sh`、`scripts/env-down.sh`、`scripts/runsc-smoke.sh`、`deploy/kind/kind-config.yaml`、`deploy/versions.env`、`deploy/versions.md` 首轮钉死。
+本地已验：bash -n 语法、env-down 幂等 noop、env-up 前置 fail-fast（docker 不在时 exit 2 + 结构化日志）、`make up` 正确接线。
+**待 docker**:`make up` 从零到全绿 + runsc 冒烟（helm 仓库 prometheus/argo 当前网络不可达，可能需镜像源）。
