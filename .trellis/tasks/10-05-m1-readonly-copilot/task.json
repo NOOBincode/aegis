@@ -1,0 +1,31 @@
+{
+  "id": "m1-readonly-copilot",
+  "name": "m1-readonly-copilot",
+  "title": "M1 只读诊断 copilot — 前三任务 + 记忆存储选型",
+  "description": "M1 前三任务（T1.1 工具框架与注册 / T1.2 只读工具集 / T1.3 观测数据工具）+ 后续记忆存储与数据库选型。每工具需冒烟+单测+集成测试。验收：M1 口径=OOMKilled 诊断 + aegis-cli replay 回放。",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": "aegis-cli",
+  "priority": "P1",
+  "creator": "lv",
+  "assignee": "lv",
+  "createdAt": "2026-10-05",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "10-05-t1-1-tool-framework",
+    "10-05-t1-2-readonly-tools",
+    "10-05-t1-3-observability-tools",
+    "10-05-memory-db-selection"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

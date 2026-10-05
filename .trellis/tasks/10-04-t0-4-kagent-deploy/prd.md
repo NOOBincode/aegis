@@ -23,3 +23,7 @@
 ## Notes
 
 - 叙事风险（红队 R8）：差异化叙事锁定 L2+L4 自研，ADR-002 保留自研薄运行时备选。
+
+## Progress (2026-10-05)
+
+kagent 0.10.3 经 OCI 部署完成：kagent-crds + kagent 两 chart，controller/ui/tools/kmcp/postgresql 全 Running。声明空 Agent `aegis-empty-probe`，controller `Accepted=True / Reconciled`（**被接管判据达成**；Ready=False 因占位 LLM key，非 T0.4 范围）。版本已钉 versions.env。附注：kagent 自带 `memories` CRD + postgres 存储（SessionRetentionDays/VectorEnabled），与记忆选型研究强相关。kagent 已接入 env-up.sh 默认组件序列（Phase 0 出口标准）。

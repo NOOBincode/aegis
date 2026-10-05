@@ -17,8 +17,9 @@ CLUSTER_NAME="${AEGIS_CLUSTER_NAME:-aegis}"
 KIND_CONFIG="${AEGIS_ROOT}/deploy/kind/kind-config.yaml"
 OBS_NS="observability"
 
-# 默认 Phase 0 组件序列（deploy/kind/README.md §4.4；kagent=T0.4、agent-sandbox=T1.9 不在本骨架内）。
-DEFAULT_COMPONENTS=(chaos-mesh prometheus argocd)
+# 默认 Phase 0 组件序列（deploy/kind/README.md §4.4；agent-sandbox=T1.9 不在本骨架内）。
+# 含 kagent：Phase 0 出口标准要求 make up 一键起 kind+Chaos+ArgoCD+Prometheus+kagent（落地方案 §3）。
+DEFAULT_COMPONENTS=(chaos-mesh prometheus argocd kagent)
 CLUSTER_ONLY=0
 COMPONENTS=()
 for a in "$@"; do
@@ -110,6 +111,18 @@ install_argocd() {
   wait_deploy argocd argocd-server 300
 }
 
+install_kagent() {
+  # T0.4：kagent 经 OCI（ghcr）安装；先 CRDs 后 controller（契约先于消费者）。
+  info install component=kagent-crds "version=${AEGIS_KAGENT_CHART_VERSION:?}" action=helm_upgrade
+  helm upgrade --install kagent-crds "${AEGIS_KAGENT_CRDS_CHART:?}" \
+    --namespace kagent --create-namespace --version "${AEGIS_KAGENT_CHART_VERSION:?}" \
+    || die 3 install_kagent-crds helm_fail "kagent-crds 安装失败"
+  helm_upsert kagent "${AEGIS_KAGENT_CHART:?}" kagent "${AEGIS_KAGENT_CHART_VERSION:?}" \
+    --set providers.default=openAI \
+    --set providers.openAI.apiKey="${AEGIS_KAGENT_LLM_APIKEY:-placeholder-not-for-prod}"
+  wait_deploy kagent kagent 300 || warn install "component=kagent" "hint=controller 未 Ready 时先确认 ModelConfig/LLM key"
+}
+
 # ---- 4. runsc 冒烟（显式降级：沙箱是环境能力，不可用必须可见，绝不假装可用）----
 runsc_smoke() {
   if [ -x "${AEGIS_ROOT}/scripts/runsc-smoke.sh" ]; then
@@ -155,6 +168,7 @@ main() {
   want chaos-mesh && install_chaos_mesh
   want prometheus && install_prometheus
   want argocd     && install_argocd
+  want kagent     && install_kagent
   runsc_smoke
   summary
   info done "duration_ms=$(( (SECONDS - t0) * 1000 ))"

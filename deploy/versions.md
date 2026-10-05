@@ -14,7 +14,7 @@
 | Go | 工具链 | 1.26（go.work `go 1.26`，本机 1.26.8） | toolchain 以 go.work 为准（落地方案 §9）；CI 用 setup-go 的 go-version-file 读取 |
 | Python | eval 运行时 | ≥3.11 | 落地方案 §9 底线；仅 `eval/` 使用，控制面禁止引入 Go 以外运行时（aegis-go-quality） |
 | golangci-lint | Lint | 2.14.0 | `.golangci.yml` 是唯一事实源，本地 make lint 与 CI 同配置 ✅已核验（make lint 0 issues） |
-| kagent | Agent 运行时（L3） | TBD（T0.4 钉死） | 钉 release tag，禁止跟踪 main（落地方案 §9）；fork 边界见 `docs/adr/ADR-002.md` |
+| kagent | Agent 运行时（L3） | 0.10.3（kagent + kagent-crds chart，ghcr OCI） | 钉 release tag，禁止跟踪 main（落地方案 §9）；fork 边界见 `docs/adr/ADR-002.md` ✅已核验部署 |
 | agent-sandbox | 沙箱底座（L0-b） | 限定 v1.0.x 系列（T1.9 集成） | 设计文档 §3.3/N1：SIG Apps 现成件（v1.0.2 已发布），隔离委托 gVisor/Kata |
 | Chaos Mesh | 故障注入 | chart 2.7.2（app 2.7.2） | M1 验收演示与 M3 场景库（T3.2）注入工具 ✅chart 版本已核验（helm repo 可达） |
 | ArgoCD | GitOps（R2 通道） | chart 7.6.12（argo-cd） | ADR-001：R2 强制 PR 通道；T2.10 ⚠️chart 版本待核验（argo-helm 仓库当前网络不可达） |
