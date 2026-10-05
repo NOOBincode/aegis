@@ -22,7 +22,8 @@
     "10-05-t1-1-tool-framework",
     "10-05-t1-2-readonly-tools",
     "10-05-t1-3-observability-tools",
-    "10-05-memory-db-selection"
+    "10-05-memory-db-selection",
+    "10-05-t1-1-hardening-test"
   ],
   "parent": null,
   "relatedFiles": [],
