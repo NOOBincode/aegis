@@ -9,10 +9,20 @@ name: aegis
 # 节点镜像版本由 scripts/env-up.sh 从 deploy/versions.env 注入（kindest/node），此处不写死。
 
 containerdConfigPatches:
-  # docker.io 镜像加速；镜像源值由 env-up.sh 渲染前替换 __REGISTRY_MIRROR_DOCKER_IO__ 占位符。
+  # 集群内 containerd 镜像加速（deploy/kind/README.md §4.3）。
+  # 本环境实测：docker.io / *.github.io 不可达，DaoCloud 公共镜像源全 registry 可用且快。
+  # 每个 registry 先走镜像源、回退官方源；网络环境不同改这里即可（同一仓库只保留这一份映射）。
   - |-
     [plugins."io.containerd.grpc.v1.cri".registry.mirrors."docker.io"]
-      endpoint = ["__REGISTRY_MIRROR_DOCKER_IO__", "https://registry-1.docker.io"]
+      endpoint = ["https://docker.m.daocloud.io", "https://registry-1.docker.io"]
+    [plugins."io.containerd.grpc.v1.cri".registry.mirrors."ghcr.io"]
+      endpoint = ["https://ghcr.m.daocloud.io", "https://ghcr.io"]
+    [plugins."io.containerd.grpc.v1.cri".registry.mirrors."registry.k8s.io"]
+      endpoint = ["https://k8s.m.daocloud.io", "https://registry.k8s.io"]
+    [plugins."io.containerd.grpc.v1.cri".registry.mirrors."gcr.io"]
+      endpoint = ["https://gcr.m.daocloud.io", "https://gcr.io"]
+    [plugins."io.containerd.grpc.v1.cri".registry.mirrors."quay.io"]
+      endpoint = ["https://quay.m.daocloud.io", "https://quay.io"]
 
 nodes:
   - role: control-plane

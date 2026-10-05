@@ -41,19 +41,32 @@ preflight() {
 }
 
 # ---- 2. 幂等建集群 ----
+# 节点镜像确保：docker.io 不可达时经镜像源拉取并 retag（deploy/kind/README.md §4.3/§4.7）。
+ensure_node_image() {
+  local img="${AEGIS_KIND_NODE_IMAGE:-}"
+  [ -n "$img" ] || return 0
+  if docker image inspect "$img" >/dev/null 2>&1; then
+    info cluster action=node_image_present "image=${img}"; return 0
+  fi
+  local mirror_host="${AEGIS_REGISTRY_MIRROR_DOCKER_IO#https://}"
+  mirror_host="${mirror_host#http://}"; mirror_host="${mirror_host%/}"
+  local mirror_img="${mirror_host}/${img}"
+  info cluster action=node_image_pull "image=${img}" "via_mirror=${mirror_host}"
+  { docker pull "$mirror_img" >/dev/null 2>&1 && docker tag "$mirror_img" "$img"; } \
+    || docker pull "$img" >/dev/null 2>&1 \
+    || die 2 cluster node_image_pull_fail "节点镜像拉取失败；配置镜像源/代理后重试（§4.3）"
+}
+
 cluster_up() {
   if cluster_exists "$CLUSTER_NAME"; then
     info cluster action=exists "component=kind" "hint=已存在，跳过创建（如需变更端口/节点先 make down）"
     return 0
   fi
-  local rendered; rendered="$(mktemp)"
-  sed "s#__REGISTRY_MIRROR_DOCKER_IO__#${AEGIS_REGISTRY_MIRROR_DOCKER_IO:-https://docker.m.daocloud.io}#g" \
-    "$KIND_CONFIG" > "$rendered"
+  ensure_node_image
   info cluster action=create "component=kind" "version=${AEGIS_KIND_NODE_IMAGE:-default}"
-  kind create cluster --name "$CLUSTER_NAME" --config "$rendered" \
+  kind create cluster --name "$CLUSTER_NAME" --config "$KIND_CONFIG" \
     ${AEGIS_KIND_NODE_IMAGE:+--image "${AEGIS_KIND_NODE_IMAGE}"} \
     || die 1 cluster create_fail "kind create 失败，诊断见 deploy/kind/README.md §4.7"
-  rm -f "$rendered"
   kubectl cluster-info --context "kind-${CLUSTER_NAME}" >/dev/null \
     || die 4 cluster apiserver_unreachable "apiserver 不可达"
   info cluster action=ready "component=kind"
@@ -63,33 +76,36 @@ cluster_up() {
 helm_upsert() { # helm_upsert <release> <chart> <namespace> <chart_version> [extra --set ...]
   local release="$1" chart="$2" ns="$3" ver="$4"; shift 4
   info install "component=${release}" "version=${ver}" action=helm_upgrade
+  # --wait 超时放宽到 10m：本网络镜像拉取慢（DaoCloud 镜像源），首次安装要拉全量镜像。
   helm upgrade --install "$release" "$chart" \
     --namespace "$ns" --create-namespace \
-    --version "$ver" --wait --timeout 5m "$@" \
+    --version "$ver" --wait --timeout 10m "$@" \
     || die 3 "install_${release}" helm_fail "helm 安装 ${release} 失败；查 ${ns} 命名空间 Pod 事件"
 }
 
 install_chaos_mesh() {
+  # chaos-mesh 未发布到 ghcr，用其官方 repo（本网络可达）。
   helm repo add chaos-mesh https://charts.chaos-mesh.org >/dev/null 2>&1 || true
-  helm repo update >/dev/null 2>&1 || true
-  helm_upsert chaos-mesh chaos-mesh/chaos-mesh chaos-mesh "${AEGIS_CHAOS_MESH_CHART_VERSION:?}" \
-    --set chaosDaemon.runtime=containerd
+  helm repo update chaos-mesh >/dev/null 2>&1 || true
+  # 本地故障注入底座从简：controller-manager 单副本（默认 3 副本的 leader-election 在小集群上会翻滚卡住）。
+  helm_upsert chaos-mesh "${AEGIS_CHAOS_MESH_CHART:?}" chaos-mesh "${AEGIS_CHAOS_MESH_CHART_VERSION:?}" \
+    --set chaosDaemon.runtime=containerd \
+    --set chaosDaemon.socketPath=/run/containerd/containerd.sock \
+    --set controllerManager.replicas=1
   wait_deploy chaos-mesh chaos-controller-manager 300
 }
 
 install_prometheus() {
-  helm repo add prometheus-community https://prometheus-community.github.io/helm-charts >/dev/null 2>&1 || true
-  helm repo update >/dev/null 2>&1 || true
-  helm_upsert prometheus prometheus-community/kube-prometheus-stack "$OBS_NS" "${AEGIS_KUBE_PROMETHEUS_STACK_CHART_VERSION:?}" \
+  # OCI（ghcr）安装：本网络 *.github.io Pages 被墙，ghcr OCI 已核验可达。
+  helm_upsert prometheus "${AEGIS_PROMETHEUS_CHART:?}" "$OBS_NS" "${AEGIS_KUBE_PROMETHEUS_STACK_CHART_VERSION:?}" \
     --set grafana.service.type=NodePort --set grafana.service.nodePort=30300 \
     --set prometheus.service.type=NodePort --set prometheus.service.nodePort=30090
   wait_deploy "$OBS_NS" prometheus-grafana 300
 }
 
 install_argocd() {
-  helm repo add argo https://argoproj.github.io/argo-helm >/dev/null 2>&1 || true
-  helm repo update >/dev/null 2>&1 || true
-  helm_upsert argocd argo/argo-cd argocd "${AEGIS_ARGO_CD_CHART_VERSION:?}" \
+  # OCI（ghcr）安装，理由同上。
+  helm_upsert argocd "${AEGIS_ARGO_CD_CHART:?}" argocd "${AEGIS_ARGO_CD_CHART_VERSION:?}" \
     --set server.service.type=NodePort --set server.service.nodePortHttps=30443
   wait_deploy argocd argocd-server 300
 }

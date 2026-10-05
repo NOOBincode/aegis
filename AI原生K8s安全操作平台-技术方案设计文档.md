@@ -3,7 +3,7 @@
 | 项 | 内容 |
 | --- | --- |
 | 项目代号 | `aegis`（暂定，宙斯盾——取"安全闸门"意象，随项目定盘可改） |
-| 文档版本 | v1.4（§3.2 目录结构落地为轻型 DDD 分层 + 跨平台约定；v1.3：闸门自身失效语义补齐 + 规模化 HA 方向留档，R14–R15） |
+| 文档版本 | v1.5（§10 批次 #2 红队回写 R16–R29：审批身份、L2 部署级强制力、verifier 契约、留痕不可变机制、注入瘫痪面、多操作事务语义、策略防篡改等；v1.4：§3.2 目录结构落地为轻型 DDD 分层 + 跨平台约定；v1.3：闸门自身失效语义补齐 + 规模化 HA 方向留档，R14–R15） |
 | 日期 | 2026-09-22 |
 | 对标/参考 | AgentCube（volcano-sh，沙箱/调度形态参照）、kagent（CNCF，Agent 运行时形态参照）、kubectl-ai / K8sGPT（交互形态参照）、agent-sandbox（kubernetes-sigs，沙箱底座现成件） |
 | 技术形态 | Go 控制面（CRD + controller + 策略闸门）+ Python/Go Agent 运行时（基于现成件二开）+ MCP 工具层 |
@@ -130,6 +130,8 @@
 
 数据流要点：Agent 的一切工具调用**强制途经 L2 闸门**（MCP 代理模式，运行时无法绕过）；不可信代码/诊断脚本在 L0-b 沙箱内执行；调度产物是 CRD 而非直接调度动作。
 
+**部署级强制（R17）**："运行时无法绕过"必须由网络拓扑背书而非口头约定——L1 工具 server 只接受来自 gatekeeper 的 mTLS 客户端连接（证书仅签发 gatekeeper），NetworkPolicy 拒绝一切其他来源；工具不得注册进 kagent 的直连 ToolServer 清单。任一失守即 I3/I4 与 F4/F5 空心化，列入 M2 红队检查项。
+
 ### 3.2 模块清单与目录结构
 
 Monorepo（Go workspace + Python 子项目）：
@@ -241,11 +243,13 @@ aegis/
 
 - `risk-classifier`：输入=工具调用+参数+目标对象清单；输出=级别+影响面估算。判定规则为确定性代码（资源类型×动词×作用域查表），**LLM 初判仅作参考，最终级别取两者中更高者**。
 - `opa-eval`：每个 ChangeRequest 的 manifest 过 Rego 策略（禁 hostPath、禁特权容器、命名空间白名单、资源配额上下限）。AI 变更与人类变更共用同一策略库。
+- `approval-svc`（R16）：审批状态机在服务端 controller（R1），且**审批身份必须绑定**：approve/deny 只能经 gatekeeper 的认证接口提交（审批凭证 + 来源校验），status 的 approval 子资源由 gatekeeper 独占写（RBAC 收敛 + admission 兜底），kubectl 直改 `status.approval` 无效；否则"状态机在服务端"防得住伪 UI、防不住有权限者的直改，单人场景下 R2 人审退化为"自己批自己"。
 - `rollbacker`：逆操作生成（如 scale 的逆操作=原 replicas；restart 的逆操作=无，标记"效果不可回滚"→自动升 R2）。逆操作生成后**必须 dry-run 验证通过**，失败则升级级别。
 - `circuit-breaker`：滑动窗口内 R1 执行失败率 >30% 或单位时间变更数超阈值 → 全局降级只读，推送告警，人工复位。
 - `log-sanitizer`（I4）：集群返回数据统一包裹 `<untrusted_cluster_data>` 分隔符，附带注入检测（指令型关键词、角色扮演模式命中→告警+该数据衍生的任何动作自动升 R2）。
 - `authority-map`（I9）：确定性维护**字段级所有权图谱**。数据来源：`metadata.managedFields`（SSA 字段管理者）、HPA/VPA/KEDA ScaledObject 的目标引用、operator CRD 管辖范围、ArgoCD Application、descheduler/autoscaler 配置。任意对象的关键字段（replicas、resources、调度约束）都能回答"归谁管"，零 LLM 参与。
 - `attributor`（I9）：Agent 感知到的任何状态变化先过归因流水线：所有权图谱 + 事件时间线（K8s Events、audit log、HPA status、VPA recommendation、autoscaler 扩缩记录）+ 指标佐证。**能归因到健康控制器正常行为的变更=非事件**，只留痕不诊断；解释不了的残差才进入 LLM。归因先行同时大幅压缩 token 消耗。
+- `verifier`（R18）：执行后验证基于**确定性探针判据库**（pod ready、错误率阈值、指标回落方向），判据与阈值可评审、可版本化，验证窗口遵守 §4.2.4-3；LLM 评估结论仅作参考且**不得触发回滚**——回滚触发的判定与写放行同属确定性域（I1 边界向回滚方向延伸）；验证失败默认升人工而非自动回滚，防"误验证→错误回滚"（F18）。
 
 **4.2.3 关键取舍（ADR-001）**：R1 直写集群（低延迟、交互闭环）；R2 强制走 GitOps PR（评审与回滚天然自带）。代价是 R2 交互断裂，接受。
 
@@ -335,7 +339,7 @@ spec:
   guardrailPolicyRef: default        # 绑定的护栏策略
 status:
   state: Committed                   # Pending→DryRunning→AwaitingApproval→Executing
-                                     # →Verifying→Committed | RolledBack | Aborted | Rejected
+                                     # →Verifying→Committed | RolledBack | PartiallyRolledBack | Aborted | Rejected
   abort:                             # 中止语义：可随时人工/熔断器置位
     requested: false
     reason: ""
@@ -349,6 +353,12 @@ status:
     result: ""
   auditRef: audit-20260917-0001      # DecisionRecord 引用
 ```
+
+**多操作语义（R22）**：`operations[]` 默认整体顺序执行；任一失败→已执行操作按逆序自动回滚，状态落 `PartiallyRolledBack` 并升人工；组合爆炸半径按各操作 `estBlastRadius` 累加核算后再过 I7 配额（两个 6-Pod 的 R1 操作叠加=12 Pod，超限即拒）。
+
+**对象级互斥（R27）**：同一目标对象存在在途 CR 时，后续冲突 CR 拒绝并后置排队——目标级冷却期管"重复动作"，管不了并发变更。
+
+**approval 写入约束（R16）**：`status.approval` 仅由 gatekeeper 认证接口写入（§4.2.2 approval-svc），其余写入路径由 admission 拒绝。
 
 ### 5.2 GuardrailPolicy CRD（护栏策略，可评审的 YAML）
 
@@ -381,6 +391,8 @@ spec:
   opaPolicyBundle: policies/default  # Rego 策略包路径
 ```
 
+**运行态防篡改（R23）**：GuardrailPolicy 是闸门配置中枢（配额/限流/预算/熔断阈值），必须由 GitOps 管理——gatekeeper 启动载入时校验策略 CR 的 ArgoCD 来源注解与 Git 提交哈希，运行期仅接受 GitOps 同步通道的变更，`kubectl edit` 放宽不生效；R3 hardDeny 为代码级清单，不受本机制影响，保持 I1 强制。
+
 ### 5.3 DecisionRecord（审计对象，落盘不可变存储）
 
 ```yaml
@@ -398,6 +410,8 @@ spec:
   outcome: committed
   retentionDays: 365                 # 审计保留期
 ```
+
+**不可变的机制背书（R19）**：CRD 落 etcd 本身可被 edit，"不可变"须三件套落地——①spec 一次性写入后由 admission 拒绝一切 spec 变更，controller 独占 status；②会话结束即封存（finalizer 标记 `sealed`），封存后任何字段修改拒绝；③每日导出对象存储（WORM）+ 内容哈希链，`aegis-cli replay` 前校验哈希。缺此机制，I6 的审计叙事不成立。
 
 ### 5.4 SchedulingHint CRD（M4 可选，此处仅留契约位）
 
@@ -424,6 +438,9 @@ spec:
 | F13 | 多控制器涌现失配（各自正确、全局振荡） | VPA+HPA 同指标互搏；VPA 抬 requests→autoscaler 加节点的成本螺旋；descheduler 与 PDB 拉锯 | 振荡模式库 + 指标级周期性波动检测 | 主动巡检品类，输出"控制器组合失配"报告（差异化亮点） |
 | F14 | 闸门崩溃/与 apiserver 分区，在途变更悬挂 | 宕机、leader 切换、网络分区、webhook 超时 | CR 状态机巡检：Executing 超时未推进即告警 | fail-closed；重启后 reconcile 重入核对实际状态，续作/回滚/中止（§4.2.5） |
 | F15 | 重试导致同一意图执行两次 | 调用方网络重试、消息重投 | idempotencyKey 折叠 + 信封序号检测 | CR 名哈希去重，重复提交返回同一 CR；序号乱序拒绝 |
+| F16 | 注入诱导瘫痪（过度保守） | 注入文本持续命中 sanitizer 或推高 LLM 初判级别，所有动作被升 R2/R3 | 升 R2 比例突增指标 + `sanitizer_hit` 风暴检测 | 注入者的目标可以是"什么都不许做"：命中风暴期临时收紧 R1 自动执行并告警，绝不反向放宽 I4（R20） |
+| F17 | 多操作 CR 部分失败 | `operations[]` 第 N 个失败，前 N-1 个已生效 | 状态机 `executedOps` 与 operations 长度不符 | 已执行操作逆序回滚→`PartiallyRolledBack`→升人工（R22，§5.1） |
+| F18 | 误验证触发错误回滚 | 验证判据/窗口不当，把收敛中判为失败 | verifier 判据库评审 + 观察窗口配置校验（类比 F12） | 验证失败默认升人工、不自动回滚；LLM 评估结论不得触发回滚（R18，§4.2.2） |
 
 ---
 
@@ -509,6 +526,25 @@ v1.0 定稿前首轮自审，发现项已全部回写正文。
 | R13 | P2 | 稳定 | Agent 自身成为控制回路一员后，动作频率无约束会放大系统振荡（自我激励回路） | 目标级冷却期 + 验证窗口≥控制器稳定窗口；已回写 §4.2.4 |
 | R14 | P1 | 可靠 | 初版有熔断器但无闸门自身进程级失效设计：崩溃时在途变更悬挂、恢复语义未定义、重试可能双执行 | 新增 I10 + §4.2.5 + idempotencyKey + F14/F15；已回写 §2/§4.2/§5.1/§6 |
 | R15 | P2 | 范围 | 千级集群 HA/worker 解耦冲动撞 N3/N6，且无可验证环境——设计出来无法过"能演示"里程碑纪律，即纸面架构 | 留档附录 C 并写死立篇触发条件，不进主线；主线仅保留可验证的失效语义 |
+
+**批次 #2（2026-10-05，M2 前外部评审）**：发现 14 项已全部回写正文；威胁模型新增 AS-11～AS-14 的同步登记列入 M2 前动作。
+
+| 编号 | 严重度 | 视角 | 发现 | 整改落点 |
+| --- | --- | --- | --- | --- |
+| R16 | P0 | 安全 | 审批状态机移服务端后，"谁有资格审批"无认证设计：CLI→gatekeeper 通道无身份校验，有 RBAC 权限者可 kubectl 直改 approval/status；单人场景下 R2 退化为"自己批自己"，人审边际价值归零 | 审批身份绑定 + approval 子资源独占写（RBAC 收敛 + admission 兜底）；已回写 §4.2.2、§5.1；威胁模型 AS-02 扩展登记 |
+| R17 | P0 | 安全 | "一切工具调用强制途经 L2"只有一句话、无部署级保证：工具 server 若被 kagent 直连发现，I3/I4 与 F4/F5 全部空心化 | 部署级强制：mTLS 客户端证书仅签 gatekeeper + NetworkPolicy 拒绝其他来源 + 禁止直连注册；已回写 §3.1；列 M2 红队检查项 |
+| R18 | P0 | 可靠 | verifier 是语义黑洞：谁验证、验证失败处置、LLM 能否触发回滚均未定义；M2 验收①依赖它，且 LLM 触发回滚会突破 I1 边界 | verifier 契约：确定性探针判据库，LLM 评估不得触发回滚，验证失败默认升人工；已回写 §4.2.2、§6 F18 |
+| R19 | P1 | 安全 | §5.3 写"落盘不可变存储"但 CRD+etcd 可任意 edit，I6 审计完整性无机制背书 | 不可变三件套（spec 封存 + admission 拒改、finalizer `sealed`、WORM 导出 + 哈希链）；已回写 §5.3 |
+| R20 | P1 | 安全 | 注入分析只覆盖"诱导越权"一面，漏"诱导瘫痪"：持续注入可让所有动作升 R2/R3，Agent 被远程钉死（可用性 DoS） | 新增 F16 + 升级率异常指标 + 命中风暴期收紧 R1；威胁模型新增 AS-12 |
+| R21 | P1 | 安全 | R1 全自动与 sanitizer"模式库不可能完备"自相矛盾：检测残差 = 无审批直写 | 对冲规则：本轮会话存在注入嫌疑（LLM 初判升高或命中风暴）时禁用 R1 自动执行；M2 红队注入用例覆盖 |
+| R22 | P1 | 可靠 | 多操作 CR 无事务语义：部分失败如何回滚、组合爆炸半径是否累加核算均未定义 | 多操作语义：逆序回滚 + `PartiallyRolledBack` + 累加核算；已回写 §5.1、§6 F17 |
+| R23 | P1 | 安全 | GuardrailPolicy 运行态无防篡改：`kubectl edit` 可放宽配额/熔断/预算，PR 人审只管 git 流程 | 策略 CR 走 GitOps + 启动哈希校验 + 运行期仅接受同步通道变更；已回写 §5.2；威胁模型新增 AS-13 |
+| R24 | P1 | 安全 | I4 只管注入不管脱敏：日志中的连接串/token/PII 原样进 LLM 上下文，走公网通道即数据出域——HCS 私域叙事的核心短板 | read 工具族增加敏感模式扫描与分级脱敏，私域通道讲成"数据不出域"；威胁模型新增 AS-14，M1 先做扫描 + 告警 |
+| R25 | P1 | 工程 | I8 eval 门禁的裁决者未定义：grader 若用 LLM-as-judge，门禁可信度建立在未评估的评判者上 | grader 判定机制显式化：确定性匹配优先 + LLM 评判仅辅助 + 人工抽检比例写入口径文档（T3.3 交付物） |
+| R26 | P2 | 工程 | `source: agent\|human` 定位模糊：同规则则字段无用，差异化则"同一套门禁"叙事有未声明例外 | 明确字段用途=审计维度，人类变更同规则同闸门；人类通道审批语义写清，双人审批规则留 M3 后评估 |
+| R27 | P2 | 可靠 | 目标级冷却期管不了并发 CR：两个对同一对象的不同操作可同时进闸门 | 对象级互斥：在途 CR 目标冲突即拒绝后置；已回写 §5.1 |
+| R28 | P2 | 可靠 | `rollback.deadline` 超时"转人工"无闭环：人工介入入口、未介入悬挂巡检、漂移 diff 呈现均未定义 | deadline 到期自动转 `Aborted` + 悬挂告警 + 漂移 diff 落 DecisionRecord；接入 F14 巡检口径 |
+| R29 | P2 | 工程 | 16GB 内存底线无分配表：kind + Prometheus + ArgoCD + kagent + Langfuse + Chaos Mesh + gVisor 争内存，笔记本 OOM 是 Phase 0 可验证风险 | `deploy/versions.md` 增资源预算表；W2 出口自检实机压一遍（T0.2 收尾项） |
 
 ---
 
