@@ -20,6 +20,12 @@ linters:
     - unparam
     - ineffassign
     - unconvert
+  exclusions:
+    # trellis 市场第三方 skill 包内的 Go 示例文件（gitignore，不入库、非 aegis 源码、不属任何 go module），
+    # 本地装有 skill 时不应参与 lint；CI 克隆的仓库本无这些文件。
+    paths:
+      - "agent/skills/"
+      - "\\.agents/skills/"
   settings:
     errcheck:
       check-type-assertions: true # 类型断言必须接 ok，防 panic（aegis-go-quality 防御性取向）
