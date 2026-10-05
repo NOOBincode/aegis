@@ -1,0 +1,18 @@
+# k8s-read 的 kagent MCPServer 注册（T1.1：空壳 server 被 kagent 发现的登记清单）。
+# kagent 据 spec.deployment 部署该 MCP server 容器，并经 httpTransport 路由到其 /mcp 端点做工具发现。
+# 镜像由本地构建 + kind load 注入（aegis/k8s-read:<版本>），imagePullPolicy: IfNotPresent。
+# 传输类型 http（Streamable HTTP）；transportType/port/httpTransport.targetPort 三者必须一致。
+apiVersion: kagent.dev/v1alpha1
+kind: MCPServer
+metadata:
+  name: k8s-read
+  namespace: kagent
+spec:
+  transportType: http
+  deployment:
+    image: aegis/k8s-read:0.1.0
+    imagePullPolicy: IfNotPresent
+    port: 8080
+  httpTransport:
+    path: /mcp
+    targetPort: 8080
