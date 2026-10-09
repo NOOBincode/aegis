@@ -1,0 +1,8 @@
+{"file": "AI原生K8s安全操作平台-技术方案设计文档 (1).md", "reason": "总设计文档 v1.5：§2 不变量 I1/I2/I4/I11、§4.2.2 scanner 组件契约、§4.1 工具层职责边界、§8.1 扫描层账目——规则层全部设计依据"}
+{"file": "AI原生K8s安全操作平台-落地方案-v1.0.md", "reason": "§4 M1 任务清单与编号（T1.1/T1.4 已占用，本任务顺延 T1.11 需补记）、§2 落地纪律 R-2/R-4"}
+{"file": "internal/mcpserver/README.md", "reason": "MCP 框架规范：元数据五字段强校验、统一中间件链（sanitize 包裹/限流/埋点/超时）、错误协议、测试策略——scan_cluster 工具接入依据"}
+{"file": "mcp-servers/k8s-read/README.md", "reason": "k8s-read 规范：只读工具清单与上限、返回结构、internal/adapters/k8s 出站端口、M1 红队用例（OOMKilled 场景）——scanner 取数与验收场景来源"}
+{"file": ".trellis/tasks/10-08-t1-4-scan-rule-layer/prd.md", "reason": "本任务需求与验收口径"}
+{"file": ".trellis/tasks/10-08-t1-4-scan-rule-layer/design.md", "reason": "本任务技术设计：分层（引擎/适配/报告）、Snapshot/Finding/双层规则契约、复用路线定案"}
+{"file": ".trellis/tasks/10-08-t1-4-scan-rule-layer/research/reuse-decision.md", "reason": "kubeagent 复用路线定案（放弃 import / 自研主体 / mcp 基线）与一手来源"}
+{"file": ".trellis/tasks/10-08-t1-4-scan-rule-layer/research/kubeagent-rules.md", "reason": "双层规则库形态（Go Detector + YAML policy DSL）与故障模式覆盖清单——自研规则库的蓝本"}

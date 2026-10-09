@@ -27,6 +27,7 @@ func main() {
 			return err
 		},
 	})
+	root.AddCommand(newScanCmd()) // T1.11 规则层：Tier-0 确定性巡检（离线零 LLM）
 	if err := root.Execute(); err != nil {
 		// cobra 已打印错误与用法；业务退出码扩展见 cmd/aegis-cli/README.md
 		os.Exit(1)

@@ -37,6 +37,7 @@ linters:
         ctx-no-infra-deps:
           files:
             - "**/internal/risk/**"
+            - "**/internal/scan/**"
             - "**/internal/policy/**"
             - "**/internal/approval/**"
             - "**/internal/rollback/**"
@@ -59,6 +60,7 @@ linters:
         no-reverse-adapters:
           files:
             - "**/internal/risk/**"
+            - "**/internal/scan/**"
             - "**/internal/policy/**"
             - "**/internal/approval/**"
             - "**/internal/rollback/**"

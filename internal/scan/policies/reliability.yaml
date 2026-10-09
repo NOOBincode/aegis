@@ -1,0 +1,52 @@
+# aegis 规则层 B 层：结构缺陷 lint 默认规则包（reliability + security 子集）。
+#
+# 规则是数据不是代码（抗规则腐烂 R17 主载体）：热修改即生效，无需重编译/重启。
+# 加载即 fail-fast 强校验（PolicyRule.Validate）：封闭操作集、kind 白名单（排除
+# Secret/ConfigMap data 防泄密）、path 白名单（数据最小化）。
+#
+# op 语义 = "应当满足"（违反即产出 finding）：
+#   exists   应存在（违反=缺失）          notExists 应不存在（违反=存在）
+#   in       应在集合（违反=不在）         notIn     应不在集合（违反=在）
+#   gt/gte/lt/lte 数值比较（支持 K8s quantity：500m / 512Mi / 1Gi）
+rules:
+  - id: reliability.no-memory-limit
+    match: {kind: Deployment}
+    assert:
+      path: "spec.template.spec.containers[*].resources.limits.memory"
+      op: exists
+    level: warning
+    message: "容器未设 memory limit，存在 OOM 与节点资源争抢风险"
+
+  - id: reliability.no-readiness-probe
+    match: {kind: Deployment}
+    assert:
+      path: "spec.template.spec.containers[*].readinessProbe"
+      op: exists
+    level: warning
+    message: "容器未设 readinessProbe，未就绪 Pod 可能提前接流量"
+
+  - id: reliability.no-liveness-probe
+    match: {kind: Deployment}
+    assert:
+      path: "spec.template.spec.containers[*].livenessProbe"
+      op: exists
+    level: info
+    message: "容器未设 livenessProbe，僵死进程无法被自动重启"
+
+  - id: reliability.image-latest-tag
+    match: {kind: Deployment}
+    assert:
+      path: "spec.template.spec.containers[*].imageTag"
+      op: notIn
+      values: ["latest"]
+    level: warning
+    message: "镜像使用 :latest 标签，无法锁定版本、回滚不可靠"
+
+  - id: security.privileged-container
+    match: {kind: Deployment}
+    assert:
+      path: "spec.template.spec.containers[*].securityContext.privileged"
+      op: notIn
+      values: ["true"]
+    level: critical
+    message: "容器以 privileged 运行，等同节点 root，需收敛安全上下文"

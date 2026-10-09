@@ -1,0 +1,5 @@
+{"file": "AI原生K8s安全操作平台-技术方案设计文档 (1).md", "reason": "质量检查对照：I1（放行只在 L2）/I2（不进热路径）/I4（输出过 sanitize）/I11（离线零 LLM）；§4.2.2 脱敏报告口径；R17 规则腐烂防线"}
+{"file": "internal/mcpserver/README.md", "reason": "检查 scan_cluster 工具注册是否过元数据五字段强校验、错误协议分类是否正确、中间件链是否完整（包裹/限流/超时）"}
+{"file": "mcp-servers/k8s-read/README.md", "reason": "检查取数侧纪律：分页上限、返回结构、禁止依赖 L2 组件、红队用例（注入包裹/超大 list 拒绝）"}
+{"file": ".trellis/tasks/10-08-t1-4-scan-rule-layer/prd.md", "reason": "验收口径逐条对照（断网 OOMKilled 命中、脱敏、depguard、消费形态）"}
+{"file": ".trellis/tasks/10-08-t1-4-scan-rule-layer/design.md", "reason": "检查实现是否符合分层契约：引擎不 import client-go、规则数据驱动可扩展、报告脱敏"}
