@@ -57,7 +57,8 @@ func (e *Engine) Scan(s Snapshot, policies []PolicyRule) Result {
 	nodePressure := indexNodeMemoryPressure(s.Nodes)
 	nodeSystemOOM := indexNodeSystemOOM(s.Events)
 
-	// A 层：运行时故障根因（按 Pod 有界并行）。
+	// A 层：运行时故障根因（按 Pod 有界并行）。构造 PodFacts 时预合并容器（All），
+	// 避免每个 detector 对同一 Pod 重复合并 init+常规容器（消除 d×p 次重复分配）。
 	podFacts := make([]PodFacts, 0, len(s.Pods))
 	for _, p := range s.Pods {
 		podFacts = append(podFacts, PodFacts{
@@ -65,6 +66,7 @@ func (e *Engine) Scan(s Snapshot, policies []PolicyRule) Result {
 			Events:             byPod[podKey(p.Namespace, p.Name)],
 			NodeMemoryPressure: nodePressure[p.NodeName],
 			NodeSystemOOM:      nodeSystemOOM[p.NodeName],
+			All:                allContainers(p),
 		})
 	}
 	findings := Run(e.detectors, podFacts, e.workers)

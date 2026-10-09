@@ -92,7 +92,7 @@ type oomKilledDetector struct{ now func() time.Time }
 func (d oomKilledDetector) ID() string { return "OOM_KILLED" }
 
 func (d oomKilledDetector) Detect(facts PodFacts) *Finding {
-	for _, c := range allContainers(facts.Pod) {
+	for _, c := range facts.containers() {
 		// 高置信：kubelet 明确标注 OOMKilled。
 		if c.TerminatedReason == "OOMKilled" || c.LastTerminatedReason == "OOMKilled" {
 			f := newFinding(d.ID(), podRef(facts.Pod), SeverityCritical,
@@ -210,7 +210,7 @@ type imagePullDetector struct{}
 func (d imagePullDetector) ID() string { return "IMAGE_PULL_ERROR" }
 
 func (d imagePullDetector) Detect(facts PodFacts) *Finding {
-	for _, c := range allContainers(facts.Pod) {
+	for _, c := range facts.containers() {
 		if c.WaitingReason != "ImagePullBackOff" && c.WaitingReason != "ErrImagePull" {
 			continue
 		}
@@ -231,7 +231,7 @@ type crashLoopDetector struct{ now func() time.Time }
 func (d crashLoopDetector) ID() string { return "CRASH_LOOP" }
 
 func (d crashLoopDetector) Detect(facts PodFacts) *Finding {
-	for _, c := range allContainers(facts.Pod) {
+	for _, c := range facts.containers() {
 		if c.WaitingReason != "CrashLoopBackOff" {
 			continue
 		}
@@ -259,7 +259,7 @@ type configErrorDetector struct{}
 func (d configErrorDetector) ID() string { return "CONFIG_ERROR" }
 
 func (d configErrorDetector) Detect(facts PodFacts) *Finding {
-	for _, c := range allContainers(facts.Pod) {
+	for _, c := range facts.containers() {
 		if c.WaitingReason != "CreateContainerConfigError" {
 			continue
 		}
@@ -287,7 +287,7 @@ var containerStartWaitingReasons = map[string]bool{
 }
 
 func (d containerStartErrorDetector) Detect(facts PodFacts) *Finding {
-	for _, c := range allContainers(facts.Pod) {
+	for _, c := range facts.containers() {
 		if !containerStartWaitingReasons[c.WaitingReason] {
 			continue
 		}
@@ -354,7 +354,7 @@ func (d restartLoopDetector) Detect(facts PodFacts) *Finding {
 	if p.Phase != "Running" {
 		return nil
 	}
-	for _, c := range allContainers(p) {
+	for _, c := range facts.containers() {
 		// 仅兜"当前在运行（非 waiting）但反复重启"且非 OOM 根因的情形。
 		if c.RestartCount < d.threshold || c.WaitingReason != "" || c.LastTerminatedReason == "OOMKilled" {
 			continue

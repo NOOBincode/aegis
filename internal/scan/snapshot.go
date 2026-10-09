@@ -27,6 +27,18 @@ type PodFacts struct {
 	NodeMemoryPressure bool
 	// NodeSystemOOM 所在节点近期是否有 SystemOOM 事件（节点级 OOM killer 佐证）。
 	NodeSystemOOM bool
+	// All 预合并的 init+常规容器（引擎构造时算一次，避免每个 detector 重复合并分配）。
+	// 由 Engine 填充；为 nil 时 containers() 惰性回退到合并 Pod.Containers+InitContainers。
+	All []ContainerInfo
+}
+
+// containers 返回全部容器（优先用预合并的 All，未预填则惰性合并）。
+// Detector 一律经此访问容器，不要直接调 allContainers（防重复分配）。
+func (f PodFacts) containers() []ContainerInfo {
+	if f.All != nil {
+		return f.All
+	}
+	return allContainers(f.Pod)
 }
 
 // ContainerInfo 单容器状态（判定 OOM/CrashLoop/探针的核心信号来源）。
