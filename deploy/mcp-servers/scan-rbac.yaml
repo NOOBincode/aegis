@@ -1,0 +1,36 @@
+# scan server 的只读 RBAC（最小权限，I3 工具即权限边界）。
+# scan 是 R0 只读巡检：仅需 list/get/watch pods、deployments、nodes、events。
+# 刻意不含 secrets/configmaps 明文读取、不含任何写动词——沙箱能看到的最多等于 Agent 能查到的。
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: scan
+  namespace: kagent
+  labels: {app: scan, aegis.dev/component: mcp-server}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: scan-read
+  labels: {app: scan, aegis.dev/component: mcp-server}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "nodes", "events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: scan-read
+  labels: {app: scan, aegis.dev/component: mcp-server}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: scan-read
+subjects:
+  - kind: ServiceAccount
+    name: scan
+    namespace: kagent

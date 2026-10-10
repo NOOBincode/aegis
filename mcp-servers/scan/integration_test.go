@@ -174,3 +174,57 @@ func waitForOOMKilled(t *testing.T, cs *kubernetes.Clientset, ns, name string, t
 	}
 	return false
 }
+
+// TestIntegrationKagentDeployedScan 端到端：经 kagent 部署的 scan server（port-forward
+// svc/scan）对真实集群调 scan_cluster，命中注入的 OOMKilled。需先：
+//   kubectl port-forward -n kagent svc/scan 18081:8081
+// 且集群注入 OOMKilled pod（default/scan-e2e-oom）。SCAN_E2E_URL 覆盖地址。
+func TestIntegrationKagentDeployedScan(t *testing.T) {
+	url := os.Getenv("SCAN_E2E_URL")
+	if url == "" {
+		url = "http://localhost:18081"
+	}
+	c, err := client.NewStreamableHttpClient(url + "/mcp")
+	if err != nil {
+		t.Fatalf("client: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := c.Start(ctx); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer c.Close()
+	if _, err := c.Initialize(ctx, mcp.InitializeRequest{}); err != nil {
+		t.Fatalf("initialize: %v", err)
+	}
+
+	// 发现：tools/list 含 scan_cluster。
+	tools, err := c.ListTools(ctx, mcp.ListToolsRequest{})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	found := false
+	for _, tool := range tools.Tools {
+		if tool.Name == "scan_cluster" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("kagent 部署的 scan server 应发现 scan_cluster：%+v", tools.Tools)
+	}
+
+	// 调用：对 default ns 巡检，应命中注入的 OOMKilled。
+	res, err := c.CallTool(ctx, mcp.CallToolRequest{Params: mcp.CallToolParams{
+		Name: "scan_cluster", Arguments: map[string]any{"namespace": "default"},
+	}})
+	if err != nil {
+		t.Fatalf("call: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("scan_cluster 返回错误：%s", scanResultText(res))
+	}
+	text := scanResultText(res)
+	if !strings.Contains(text, "OOM_KILLED") || !strings.Contains(text, "scan-e2e-oom") {
+		t.Errorf("应命中 scan-e2e-oom 的 OOM_KILLED，got：%s", text)
+	}
+}

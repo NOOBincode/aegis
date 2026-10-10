@@ -60,3 +60,6 @@ mcp-servers/scan/scan
 # Go `go build ./...` 落在仓库根目录的可执行产物（正规输出应走 bin/）
 /aegis-cli
 /scan
+
+# scan 等镜像构建的本地静态二进制产物
+mcp-servers/*/bin/

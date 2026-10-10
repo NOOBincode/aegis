@@ -25,7 +25,8 @@
     "10-05-memory-db-selection",
     "10-05-t1-1-hardening-test",
     "10-08-t1-4-scan-rule-layer",
-    "10-10-t1-12-scan-mcp-tool"
+    "10-10-t1-12-scan-mcp-tool",
+    "10-10-t1-13-scan-kagent-integration"
   ],
   "parent": null,
   "relatedFiles": [],
