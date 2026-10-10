@@ -29,3 +29,26 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 2: T1.12 scan_cluster MCP 工具 —— 打通 Agent→Tier-0 入口
+<!-- trellis-session: v=2 fp=c05b804b6841b8ba -->
+
+**Date**: 2026-10-10
+**Task**: T1.12 scan_cluster MCP 工具 —— 打通 Agent→Tier-0 入口
+**Package**: aegis-cli
+**Branch**: `main`
+
+### Summary
+
+把 internal/scan Tier-0 规则巡检暴露为 MCP 只读工具 scan_cluster（mcp-servers/scan 独立进程，mcpserver 框架 RiskR0）。handler 经 Scanner 接口解耦，main.go 装配注入真实 service。FilePolicySource 提取为共享 internal/policyload（aegis-cli 与 scan server 共用）。四层测试：单测（参数/结构/错误协议）、白盒（元数据/schema）、黑盒（list 契约/未知工具/非法参数/panic 隔离存活）、集成（kind 注入 OOMKilled 经 MCP 命中 OOM_KILLED）+ 冒烟。trellis-check 无 P0；补 sarif 渲染 + since 负数校验 + 路径穿越防御 + gitignore 根目录二进制防护。下一步：kagent ToolServer 注册 scan server，Agent 实际调用 scan_cluster 验证端到端减负。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `91be080` | feat(scan): T1.12 scan_cluster MCP 工具 + policyload 提取 —— 打通 Agent→Tier-0 入口 |
+
+### Status
+
+[OK] **Completed**
