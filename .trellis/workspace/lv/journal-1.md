@@ -52,3 +52,26 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 3: T1.13 scan server kagent 集成（端到端打通 Agent→Tier-0）
+<!-- trellis-session: v=2 fp=c5404ed370b6e168 -->
+
+**Date**: 2026-10-10
+**Task**: T1.13 scan server kagent 集成（端到端打通 Agent→Tier-0）
+**Package**: aegis-cli
+**Branch**: `main`
+
+### Summary
+
+scan server 部署进 kind 并注册 kagent MCPServer CR（SA 只读 RBAC + serviceAccountName）。端到端验证：注入 OOMKilled 经 kagent 部署的 server 调 scan_cluster 命中 OOM_KILLED（137 推断链），结果经 I4 包裹（wrapped:true），2/2 规则结案（next_tier=false，不经 LLM 即定根因）。RBAC can-i 验证最小权限。期间发现并解除环境阻塞：集群 CoreDNS/kube-proxy 系统性崩溃致 kagent controller 连不上 postgresql（该故障由 aegis-cli scan 自举诊断发现），pod 级自愈恢复。LLM 端到端 blocked（OpenAI 不可达），留私域 vLLM。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `735117f` | feat(scan): T1.13 scan server kagent 集成 —— 部署+RBAC+发现+工具调用端到端 |
+
+### Status
+
+[OK] **Completed**
