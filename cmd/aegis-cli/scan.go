@@ -11,6 +11,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 
 	k8sadapter "github.com/aegis-dev/aegis/internal/adapters/k8s"
+	"github.com/aegis-dev/aegis/internal/policyload"
 	"github.com/aegis-dev/aegis/internal/scan"
 )
 
@@ -56,7 +57,7 @@ func runScan(cmd *cobra.Command, kubeconfig, namespace, policiesDir, format, out
 	}
 	// 装配：适配层取数端口 + B 层规则来源 + 引擎（A 层默认注册表）。
 	provider := k8sadapter.NewScanSnapshotProvider(cs)
-	svc := scan.NewService(provider, FilePolicySource{Dir: policiesDir}, nil, 0, nil)
+	svc := scan.NewService(provider, policyload.FilePolicySource{Dir: policiesDir}, nil, 0, nil)
 
 	res, err := svc.Scan(cmd.Context(), scan.CollectOptions{Namespace: namespace, SinceSeconds: sinceSec})
 	if err != nil {

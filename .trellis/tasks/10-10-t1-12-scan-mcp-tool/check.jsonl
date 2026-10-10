@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/scan/backend/index.md", "reason": "scan 上下文规范：定位/纪律/依赖方向"}
+{"file": ".trellis/spec/scan/backend/rules-engine.md", "reason": "双层规则库契约（Detector/Policy DSL/Finding 字段）"}
+{"file": ".trellis/spec/scan/backend/concurrency.md", "reason": "并发/确定性/热修改 fail-safe 约定"}
+{"file": "internal/mcpserver/README.md", "reason": "MCP 框架规范：元数据五字段/中间件链/错误协议/黑盒测试模式"}
+{"file": "mcp-servers/k8s-read/README.md", "reason": "只读工具集规范与 M1 过渡形态参照"}
+{"file": ".trellis/tasks/10-10-t1-12-scan-mcp-tool/prd.md", "reason": "本任务需求与验收"}
+{"file": ".trellis/tasks/10-10-t1-12-scan-mcp-tool/design.md", "reason": "本任务技术设计（Scanner 解耦/policyload 提取/测试矩阵）"}

@@ -55,3 +55,8 @@ mcp-servers/k8s-write/k8s-write
 mcp-servers/logs/logs
 mcp-servers/prom/prom
 mcp-servers/runbook/runbook
+mcp-servers/scan/scan
+
+# Go `go build ./...` 落在仓库根目录的可执行产物（正规输出应走 bin/）
+/aegis-cli
+/scan
