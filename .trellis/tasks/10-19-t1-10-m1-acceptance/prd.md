@@ -20,6 +20,10 @@ eval 场景库第 1 号：OOMKilled 故障 manifest + 期望根因标注（格�
 
 ## Notes
 
+- 2026-10-18 起步：`eval/scenarios/oom-killed/` 场景已落盘并实机验证——busybox awk 分配触发
+  cgroup OOM（exit 137/reason Error），scan_cluster 命中 OOM_KILLED（137 推断链，Medium）。
+  剩余：Agent 报告（LLM 通道）、DecisionRecord/replay（T1.8）。
+
 - Keep `prd.md` focused on requirements, constraints, and acceptance criteria.
 - Lightweight tasks can remain PRD-only.
 - For complex tasks, add `design.md` for technical design and `implement.md` for execution planning before `task.py start`.

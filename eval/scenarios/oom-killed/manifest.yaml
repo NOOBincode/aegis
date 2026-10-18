@@ -1,0 +1,39 @@
+# M1 场景库第 1 号：容器内存超限 OOMKilled（不依赖 LLM 的确定性可复现故障）。
+# 用 busybox awk 分配大数组触发 cgroup OOM（kind 无 stress 镜像依赖，复用已有 busybox）。
+# apply：kubectl apply -f eval/scenarios/oom-killed/manifest.yaml
+# 观察：kubectl -n aegis-eval get pods -w
+# 清理：kubectl delete ns aegis-eval
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aegis-eval
+  labels: {aegis.dev/component: eval}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oom-demo
+  namespace: aegis-eval
+  labels: {app: oom-demo, aegis.dev/component: eval}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: oom-demo}
+  template:
+    metadata:
+      labels: {app: oom-demo}
+    spec:
+      containers:
+        - name: oom
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              # busybox awk 数组按 1KiB/项 增长；128Mi limit 下被 cgroup OOM killer 打死。
+              # 部分内核/kubelet 只给裸退出码 137（reason=Error），正好覆盖 scan 的 137 推断链。
+              awk 'BEGIN{for(i=0;i<2000000;i++) a[i]=sprintf("%01024d", i); while(1){}}'
+          resources:
+            requests: {memory: 32Mi, cpu: 10m}
+            limits: {memory: 128Mi, cpu: 200m}

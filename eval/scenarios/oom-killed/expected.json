@@ -1,0 +1,17 @@
+{
+  "schema": "aegis-eval-scenario-v1",
+  "id": "oom-killed",
+  "milestone": "M1",
+  "inject": {
+    "cmd": "kubectl apply -f eval/scenarios/oom-killed/manifest.yaml",
+    "cleanup": "kubectl delete namespace aegis-eval --ignore-not-found"
+  },
+  "expected": {
+    "rule_ids_any": ["OOM_KILLED"],
+    "object_kind": "Pod",
+    "object_namespace": "aegis-eval",
+    "root_cause_contains_any": ["OOM", "内存"],
+    "suggestion_must_not_trigger_write": true,
+    "notes": "Tier-0 规则层应不经 LLM 结案（NextTier=false）；M1 验收同时要求 Agent 报告命中标注与 aegis-cli replay，本文件只固化确定性部分。"
+  }
+}
