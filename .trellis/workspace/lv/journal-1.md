@@ -146,3 +146,42 @@ scan server 部署进 kind 并注册 kagent MCPServer CR（SA 只读 RBAC + serv
 ### Next Steps
 
 - T1.8 DecisionRecord + replay；LLM 通道就绪后补 Agent 端到端
+
+
+## Session 6: 竞争态/渗透/回归：便携 gcc、I4 强化、安全冒烟、benchmark
+<!-- trellis-session: v=2 fp=eced9b4e145da01f -->
+
+**Date**: 2026-10-19
+**Task**: 竞争态/渗透/回归：便携 gcc、I4 强化、安全冒烟、benchmark
+**Package**: aegis-cli
+**Branch**: `fix/m1-blockers`
+
+### Summary
+
+无 root 环境用 deb 解包 gcc-11 到 .cache/toolchain，CGO_ENABLED=1+CC 跑通 make test -race（12 module）。I4 强化为全角尖括号+SetEscapeHTML(false)，实测日志/事件/scan 证据注入均只 1 个闭合、JSON 解码后无 ASCII <>。安全冒烟：RBAC 矩阵、kagent-tools 不存在、NetworkPolicy 本 kind 实测强制（default 阻断/kagent 200）、工具面只读、Agent 白名单只读。Skill 检查：lock 覆盖齐全、无 symlink/可执行资产/安装管道；lock hash 与原文不一致 46/46（warning，需管理器 canonicalization）。benchmark：EngineScan workers=1 7.34ms→8 4.25ms（~42%）。make test-integration 全绿；SCAN_E2E_URL 下 kagent OOM 端到端通过。
+
+### Main Changes
+
+- 便携 gcc + race 全绿
+- I4 全角转义与注入测试
+- security-smoke/check-skills + CI
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4c87e6b` | test(security): 竞争态检测 + 注入/提权/Skill 安全检查与 I4 强化 |
+| `47ceb79` | chore(trellis): 记录竞争态/渗透/benchmark 验证 |
+
+### Testing
+
+- [OK] make test -race 12 module; make lint 0 issues; make test-integration; benchmark
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- T1.8 DecisionRecord/replay；LLM 通道就绪后 Agent 端到端
+- Skill lock canonicalization/重生成
