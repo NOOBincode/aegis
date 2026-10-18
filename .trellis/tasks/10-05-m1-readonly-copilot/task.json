@@ -26,7 +26,12 @@
     "10-05-t1-1-hardening-test",
     "10-08-t1-4-scan-rule-layer",
     "10-10-t1-12-scan-mcp-tool",
-    "10-10-t1-13-scan-kagent-integration"
+    "10-10-t1-13-scan-kagent-integration",
+    "10-11-t1-6-agent-runtime",
+    "10-18-fix-m1-blockers",
+    "10-19-t1-4-read-budget",
+    "10-19-t1-8-decision-record-replay",
+    "10-19-t1-10-m1-acceptance"
   ],
   "parent": null,
   "relatedFiles": [],

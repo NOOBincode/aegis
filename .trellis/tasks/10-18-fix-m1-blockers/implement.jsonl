@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/scan/backend/index.md", "reason": "scan 规则层规范：I11/双层规则库/盲点不静默"}
+{"file": ".trellis/spec/scan/backend/rules-engine.md", "reason": "B 层规则 kind 校验与 recency 契约"}
+{"file": ".trellis/spec/scan/backend/concurrency.md", "reason": "无状态 Engine/pmap 并发契约"}
+{"file": "deploy/versions.md", "reason": "版本钉死/升级依据"}
+{"file": "docs/threat-model.md", "reason": "AS-15 工具 server 暴露与 I3/R17 缓解"}

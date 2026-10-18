@@ -1,0 +1,25 @@
+# T1.10 M1 OOMKilled 场景与联调验收
+
+## Goal
+
+eval 场景库第 1 号：OOMKilled 故障 manifest + 期望根因标注（格式即 M3 沿用）；演示脚本（注入→scan_cluster/Agent→报告）；M1 验收口径两项：根因命中 + replay。依赖 T1.3/T1.4/T1.6/T1.8。验收：kind 注入 OOMKilled，scan_cluster 命中 OOM_KILLED；Agent 诊断输出命中标注；aegis-cli replay 可回放。
+
+## Requirements
+
+1. `eval/scenarios/` 第 1 号场景：OOMKilled 故障 manifest + 期望根因标注（root_cause 含 OOM_KILLED；不依赖 LLM）。
+2. 演示脚本：注入 → `scan_cluster` 命中 OOM_KILLED → Agent 诊断（LLM 通道就绪后）→ 报告；可清理。
+3. M1 验收两项：①根因报告命中标注；②`aegis-cli replay` 回放完整决策链。
+4. 依赖 T1.3/T1.4/T1.6/T1.8；LLM 端点未就绪时，scan/replay 部分仍必须可演示。
+
+## Acceptance Criteria
+
+- [ ] 场景 manifest 可 apply/cleanup，重复运行幂等。
+- [ ] `scan_cluster` 命中 `OOM_KILLED` 且带 Pod 名；`partial_reads` 为空或显式说明。
+- [ ] LLM 就绪后 Agent 输出根因命中标注；`aegis-cli replay` 可回放同一会话。
+- [ ] 演示脚本在 kind 上从头跑通并留执行记录。
+
+## Notes
+
+- Keep `prd.md` focused on requirements, constraints, and acceptance criteria.
+- Lightweight tasks can remain PRD-only.
+- For complex tasks, add `design.md` for technical design and `implement.md` for execution planning before `task.py start`.
