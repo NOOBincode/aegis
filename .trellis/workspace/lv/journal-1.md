@@ -115,3 +115,34 @@ scan server 部署进 kind 并注册 kagent MCPServer CR（SA 只读 RBAC + serv
 - 宿主抬 inotify 后跑 make up 复验 env-up 脚本
 - T1.8 DecisionRecord/replay + T1.10 OOM 场景
 - win-proxy/LLM 通道后续单独讨论
+
+
+## Session 5: T1.10 OOMKilled 场景与 137 推断实测
+<!-- trellis-session: v=2 fp=520f0015d143d9ac -->
+
+**Date**: 2026-10-19
+**Task**: T1.10 OOMKilled 场景与 137 推断实测
+**Package**: aegis-cli
+**Branch**: `fix/m1-blockers`
+
+### Summary
+
+新增 eval/scenarios/oom-killed：busybox awk 分配触发 cgroup OOM（退出码 137、reason=Error，kubelet 未标 OOMKilled）；经 kagent scan server 调 scan_cluster 命中 OOM_KILLED（Medium，容器 limit 佐证），wrapped=true、partial_reads=null。T1.10 剩余：Agent 报告（LLM 通道）与 aegis-cli replay（T1.8）。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `87a9143` | feat(eval): T1.10 第 1 号 OOMKilled 场景与 137 推断实测 |
+
+### Testing
+
+- [OK] kind 实机：scan_cluster 命名空间 aegis-eval 命中 OOM_KILLED/Pod/aegis-eval/oom-demo-*
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- T1.8 DecisionRecord + replay；LLM 通道就绪后补 Agent 端到端
