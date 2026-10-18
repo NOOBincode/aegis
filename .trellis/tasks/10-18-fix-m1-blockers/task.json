@@ -15,12 +15,12 @@
   "branch": "fix/m1-blockers",
   "base_branch": "main",
   "worktree_path": null,
-  "commit": null,
+  "commit": "98314f8",
   "pr_url": null,
   "subtasks": [],
   "children": [],
   "parent": "10-05-m1-readonly-copilot",
   "relatedFiles": [],
-  "notes": "",
+  "notes": "已实现 review 1-4 并提交 98314f8/357dbe9/d23ddc7；验证见 implement.md。未实现 T1.3/T1.4/T1.8/T1.10，未改 win-proxy/LLM；需宿主抬 inotify 后跑 make up 复验。",
   "meta": {}
 }
