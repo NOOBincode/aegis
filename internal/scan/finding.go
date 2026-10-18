@@ -75,7 +75,7 @@ type Finding struct {
 	// Suggestion 处置建议（只读性提示，不触发写）。
 	Suggestion string `json:"suggestion,omitempty"`
 	// NextTier false=规则已结案（不惊动 LLM/人审）；true=残差需 Tier-1/2。
-	// "规则层解决率"（M3 eval 一等指标，§4.6/R17）= NextTier=false 的占比。
+	// "规则层解决率"（M3 eval 一等指标，§4.6/R30）= NextTier=false 的占比。
 	NextTier bool `json:"next_tier"`
 }
 

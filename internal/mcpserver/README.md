@@ -47,7 +47,7 @@
 
 错误协议（工具错误 vs 协议错误，二者不混用）：
 
-- 协议错误（调用本身不成立）：参数 schema 校验失败、信封验签失败、序号乱序、未注册工具名、限流拒绝。返回协议级错误码，不触达 handler。
+- 协议错误（调用本身不成立）：信封验签失败、序号乱序、未注册工具名、限流拒绝。M1 的 JSON Schema 校验在 handler 内执行（`schema_validation` 工具错误、不可重试）；M2 上移到 MCP 传输/闸门层后改为协议错误，工具代码不改。
 - 工具错误（调用成立但执行失败）：集群对象不存在、超时、apiserver 返回错误。由 handler 返回结构化工具错误，带 `error_class` 与是否可重试标记；**工具错误不得被框架解释为"降级放行"**——k8s-write 的任何工具错误一律向上抛给闸门状态机处置。
 
 写工具的骨架约束：`mcp-servers/k8s-write` 的 scale_deployment / restart_pod / cordon_node 只接受 ChangeRequest ID；带自由参数的调用在协议层被拒绝（T2.8 完成判据）。执行侧走乐观并发（resourceVersion / SSA field-manager 冲突检测，检出即放弃重新归因，不蛮写重试）。

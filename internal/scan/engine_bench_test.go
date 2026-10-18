@@ -119,9 +119,10 @@ func BenchmarkEngineScan(b *testing.B) {
 // BenchmarkRunDetectors A 层扇出（detector × pod）。
 func BenchmarkRunDetectors(b *testing.B) {
 	snap := benchSnapshot(5000, 0, 2000)
-	byPod := indexEventsByPod(snap.Events)
+	recent := filterRecentEvents(snap.Events, fixedNow())
+	byPod := indexEventsByPod(recent)
 	nodeP := indexNodeMemoryPressure(snap.Nodes)
-	nodeOOM := indexNodeSystemOOM(snap.Events)
+	nodeOOM := indexNodeSystemOOM(recent)
 	facts := make([]PodFacts, len(snap.Pods))
 	for i, p := range snap.Pods {
 		facts[i] = PodFacts{Pod: p, Events: byPod[podKey(p.Namespace, p.Name)],

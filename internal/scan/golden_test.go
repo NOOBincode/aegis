@@ -7,7 +7,7 @@ import (
 
 // golden 场景：eval 场景库第 1 号（落地方案 T1.10，M1 验收口径）——Pod OOMKilled。
 // 该测试固化"规则层不经 LLM 即结案"的预期（减少 AI 审核压力的直接证据），
-// 规则改动导致快照漂移即失败（回归门禁，I8/R17）。
+// 规则改动导致快照漂移即失败（回归门禁，I8/R30）。
 
 // oomScenarioSnapshot 构造 OOMKilled 故障场景（对应 kind 集群注入 OOM 的期望根因）。
 func oomScenarioSnapshot() Snapshot {

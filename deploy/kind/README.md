@@ -63,19 +63,22 @@ kind 集群是 M1–M4 全部"可演示现象"的物理底座：M1 的 OOMKilled
 4. Prometheus——先装观测，后续组件的健康状况才有呈现面（`deploy/observability/`）。
 5. ArgoCD——R2 强制 PR 通道（ADR-001，T2.10）。
 6. kagent——Agent 运行时（T0.4，ADR-002 边界：仅配置层二开）。
-7.（M1 起）`deploy/observability/` 的 OTel collector。
-8.（M2 起）`crds/` → controller → gatekeeper → GuardrailPolicy default 实例 + Rego bundle（`policies/`）。
+7. metrics-server——`metrics.k8s.io` 资源指标，T1.2 `get_resource_metrics` 依赖（kind 不内置）。
+8.（M1 起）`deploy/observability/` 的 OTel collector。
+9.（M2 起）`crds/` → controller → gatekeeper → GuardrailPolicy default 实例 + Rego bundle（`policies/`）。
 
 顺序理由：先基础设施能力（注入、沙箱），再观测，再 GitOps 与 Agent 运行时，最后自研闸门——契约（crds/）永远先于它的消费者。
 
 ### 4.5 make up 中 kind 子流程（文字步骤）
 
-1. 读取版本表中的 kind/kubectl 版本要求，校验本机二进制。
-2. 幂等检查：集群不存在则按 §4.1/§4.2 配置创建；已存在则校验节点数与端口映射，不符则提示先 make down。
-3. 注入镜像加速配置。
-4. 按 §4.4 顺序安装组件。
-5. 执行 runsc 冒烟（§4.6）。
-6. 输出健康摘要（组件/版本/状态/端口）。
+1. 读取版本表中的 kind/kubectl 版本要求，校验本机二进制（版本不一致直接退出码 2）。
+2. **宿主 inotify 预检**：`fs.inotify.max_user_instances < 512` 或 watches < 262144 直接拒绝（否则
+   kube-proxy/CoreDNS 会 `too many open files`，整个集群假活）；修复命令见 §4.7。
+3. 幂等检查：集群不存在则按 §4.1/§4.2 配置创建；已存在则校验节点数，不符则提示先 make down。
+4. 注入镜像加速配置。
+5. 按 §4.4 顺序安装组件（kagent 默认关闭 kagent-tools 与 demo agents；Chaos 单副本）。
+6. 执行 runsc 冒烟（§4.6）。
+7. 输出健康摘要；kube-system/chaos/kagent 等任一 Pod 未 Ready 即整体失败（I10）。
 
 ### 4.6 gVisor RuntimeClass 验证
 
@@ -89,6 +92,8 @@ kind 集群是 M1–M4 全部"可演示现象"的物理底座：M1 的 OOMKilled
 | --- | --- | --- |
 | 镜像拉取反复失败 | 网络受限、镜像源未生效 | 检查 §4.3 加速配置是否注入；确认代理变量；CI 环境换用可达镜像源 |
 | 组件 Pod 起不来/崩溃 | 内存不足（WSL2 未划内存上限） | `.wslconfig` 显式划内存（≥16GB 底线）；按 §4.1 减为 1+1 节点 |
+| kube-proxy/CoreDNS/kube-state-metrics 报 `too many open files` | WSL2 默认 `fs.inotify.max_user_instances=128`，被多控制器耗尽 | 宿主执行 `printf 'fs.inotify.max_user_instances = 1024\nfs.inotify.max_user_watches = 524288\n' \| sudo tee /etc/sysctl.d/99-aegis.conf && sudo sysctl --system`，再 `wsl --shutdown`/重启 Docker 后 `make down && make up` |
+| kagent controller 连 postgres 报 `198.18.0.x`/`unexpected EOF` | CoreDNS 不 Ready 时短名 `.svc` 被转发到宿主 fake-IP DNS | 先修 inotify/kube-proxy 让 CoreDNS 2/2；必要时用 `kagent-postgresql.kagent.svc.cluster.local` 做对照 |
 | kind create 超时 | docker 资源不足或 WSL2 网络异常 | 确认 docker 可用与磁盘余量；WSL2 网络问题先 `wsl --shutdown` 重启 |
 | runsc 冒烟失败 | 平台不支持或嵌套虚拟化未开 | 按 §4.6 降级链：ptrace 兜底 → KVM → 备选 Linux 主机 |
 | `/mnt/c` 上构建极慢 | 跨文件系统性能与 inotify 限制 | 仓库移入 WSL 原生文件系统 `~/`（落地方案 §9） |

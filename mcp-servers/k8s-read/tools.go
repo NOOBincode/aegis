@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
@@ -62,6 +63,16 @@ func argInt64(args map[string]any, key string) int64 {
 		return i
 	}
 	return 0
+}
+
+// toolError 把 reader 的错误映射为工具错误：入参超限是 schema 错误（不可重试），
+// 其它才是下游错误（可重试）。旧实现把 limit/tail_lines 超限也标成 downstream+retryable，
+// 与 §4 错误协议不符。
+func toolError(err error, msg string) *mcpserver.Error {
+	if errors.Is(err, reader.ErrInvalidPaging) || errors.Is(err, reader.ErrInvalidLogLimit) {
+		return mcpserver.NewToolError(mcpserver.ErrClassSchema, false, "%s: %v", msg, err)
+	}
+	return mcpserver.NewToolError(mcpserver.ErrClassDownstream, true, "%s: %v", msg, err)
 }
 
 // requireStr 校验必填字符串入参；缺失返回 schema 协议错误。
@@ -142,7 +153,7 @@ func getPods(r *reader.Reader) mcpserver.Tool {
 			}
 			list, err := r.Pods(ctx, ns, argStr(args, "label_selector"), argLimit(args), argStr(args, "cursor"))
 			if err != nil {
-				return &mcpserver.Result{Err: mcpserver.NewToolError(mcpserver.ErrClassDownstream, true, "列举 pods 失败: %v", err)}
+				return &mcpserver.Result{Err: toolError(err, "列举 pods 失败")}
 			}
 			items := make([]map[string]any, 0, len(list.Items))
 			for _, p := range list.Items {

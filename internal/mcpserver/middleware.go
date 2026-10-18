@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"time"
+
+	"github.com/aegis-dev/aegis/internal/sanitize"
 )
 
 // 统一中间件链（internal/mcpserver/README.md §4）：每个工具调用固定顺序经过，顺序即语义。
@@ -59,35 +61,25 @@ func sanitizeMiddleware(_ Tool, next Handler) Handler {
 		if res == nil {
 			res = &Result{}
 		}
-		res.Data = wrapUntrusted(res.Data)
-		res.Meta.Wrapped = true
+		// 只包裹业务数据；错误结果（Data=nil）不产出空包裹，也不误标 wrapped=true。
+		if res.Data != nil {
+			res.Data = wrapUntrusted(res.Data)
+			res.Meta.Wrapped = true
+		}
 		return res
 	}
 }
 
-// untrustedOpen/untrustedClose 是 I4 的隔离分隔符（T1.5 与 internal/sanitize 对齐全局唯一）。
+// untrustedOpen/untrustedClose 是 I4 的隔离分隔符（唯一实现见 internal/sanitize；
+// 这里保留别名供既有测试/审计断言引用，不在本包重复字面量）。
 const (
-	untrustedOpen  = "<untrusted_cluster_data>"
-	untrustedClose = "</untrusted_cluster_data>"
+	untrustedOpen  = sanitize.Open
+	untrustedClose = sanitize.Close
 )
 
-// wrapUntrusted 把集群返回数据包裹为不可信标记。nil 不包裹。
+// wrapUntrusted 把集群返回数据包裹为不可信标记（转义防伪造边界见 internal/sanitize）。
 func wrapUntrusted(data any) any {
-	if data == nil {
-		return nil
-	}
-	return untrustedOpen + toString(data) + untrustedClose
-}
-
-func toString(v any) string {
-	switch s := v.(type) {
-	case string:
-		return s
-	case []byte:
-		return string(s)
-	default:
-		return sprintJSON(v)
-	}
+	return sanitize.Wrap(data)
 }
 
 // auditMiddleware 审计埋点（I6）：记录调用方、工具名、结果摘要、延迟、错误类别。

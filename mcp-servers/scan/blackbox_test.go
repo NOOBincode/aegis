@@ -158,7 +158,7 @@ func TestBlackBoxPanicSurvives(t *testing.T) {
 	if _, err := c.Initialize(ctx, mcp.InitializeRequest{}); err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	res := callScanTool(t, c, "scan_panic", nil)
 	if !res.IsError {

@@ -20,6 +20,9 @@ type Scanner interface {
 
 const scanTimeoutMs = 30000 // 采集+判定上界（大集群给足；I10 超时 fail-closed）
 
+// defaultEventSinceSeconds 是 Agent 未显式传 since 时的默认事件窗（1h）。
+const defaultEventSinceSeconds = 3600
+
 // scanClusterTool 定义 scan_cluster 工具（元数据五字段强校验，RiskR0 只读）。
 func scanClusterTool(s Scanner) mcpserver.Tool {
 	return mcpserver.Tool{
@@ -45,7 +48,7 @@ func scanClusterSchema() map[string]any {
 		"properties": map[string]any{
 			"namespace": map[string]any{"type": "string", "description": "限定命名空间（空=全集群，仍受上限约束）"},
 			"format":    map[string]any{"type": "string", "enum": []string{"json", "sarif", "text"}, "description": "输出格式（默认 json；text 附人类可读摘要）"},
-			"since":     map[string]any{"type": "integer", "description": "事件时间窗（秒，仅取近期事件作佐证；0=不限）"},
+			"since":     map[string]any{"type": "integer", "description": "事件时间窗（秒，仅取近期事件作佐证；缺省/0=3600s；负数拒绝）"},
 		},
 	}
 }
@@ -66,6 +69,11 @@ func scanClusterHandler(s Scanner) mcpserver.Handler {
 		since := argInt64(args, "since")
 		if since < 0 {
 			return &mcpserver.Result{Err: mcpserver.NewToolError(mcpserver.ErrClassSchema, false, "since 不能为负，got %d", since)}
+		}
+		if since == 0 {
+			// Agent 通常不传 since；默认给 1h，避免陈旧的 SystemOOM/Unhealthy 事件
+			// 被当作当前佐证（陈旧误归因比"少看旧事件"更危险）。
+			since = defaultEventSinceSeconds
 		}
 		res, err := s.Scan(ctx, scan.CollectOptions{
 			Namespace:    argStr(args, "namespace"),

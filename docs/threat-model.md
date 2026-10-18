@@ -50,6 +50,7 @@
 | AS-08 | 闸门自身失效被利用 | 闸门崩溃、与 apiserver 分区、webhook 超时 | 失效期间出现"静默放行"或悬挂变更被二次执行 |
 | AS-09 | 回滚欺骗 | 回滚时目标已被第三方修改（状态漂移） | 回滚前不复验漂移即执行 |
 | AS-10 | 供应链 | 恶意依赖 / 镜像 / 用户脚本 | 依赖准入与镜像钉死失效 |
+| AS-15 | 工具 server 直连暴露 | kagent 命名空间内 MCPServer / 内置工具 server 可被任意 Pod 调用；kagent-tools 的 SA 是 `*/*/*` 且暴露 `shell`/`k8s_delete` 等写工具 | 无认证、无 NetworkPolicy、工具 SA 过宽（M1 无 L2 代理） |
 
 ## 5. 现有缓解映射表（攻击面 → 不变量 → 组件 → 失败模式）
 
@@ -65,6 +66,7 @@
 | AS-08 | I10 | 闸门无状态化 + leader election 单写者 + CR 状态机在途恢复 + fail-closed 写路径 + Executing 超时巡检 | F14 | 闸门不可用 ≠ 集群可用性受损；绝不"挂了先放行" |
 | AS-09 | I5 | rollbacker：逆操作强制 dry-run 验证 + 回滚前漂移复验 + `rollback.deadline` 超时转人工 | F6 | 逆操作无法生成即自动升 R2 |
 | AS-10 | I3 | 依赖纪律（理由 + license 陈述）、版本钉死（`deploy/versions.md`）、写工具逐人过红队 | F9 | 闸门代码 AI 产出 100% 逐行人审（R-2） |
+| AS-15 | I3、I10、R17 | `scripts/env-up.sh` 默认关闭 kagent-tools（其 ClusterRole 为 `*/*/*`）与 demo agents；自研 MCP server 只授只读 SA（`deploy/mcp-servers/*-rbac.yaml`）；`deploy/security/kagent-mcp-networkpolicy.yaml` 预留入站白名单。**kindnet 不实现 NetworkPolicy**，M1 的有效控制是关闭 cluster-admin 工具 + SA 只读，M2 再以 mTLS/gatekeeper 代理强制 | F9 | M1 残余风险：同命名空间 Pod 仍可直连只读 server（读面），已用 SA 最小权限封顶；跨命名空间网络强制待 Calico/Cilium 或 M2 |
 
 ## 6. 红队评审记录（首轮：设计文档 §10 定稿前自审）
 

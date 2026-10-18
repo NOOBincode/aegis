@@ -1,0 +1,44 @@
+# k8s-read 的只读 RBAC（最小权限，I3 工具即权限边界）。
+# 工具面：pods 列举/描述、pod 日志、events、nodes、deployments 列举/描述、metrics.k8s.io
+# pods/nodes 资源指标。刻意不含 secrets/configmaps 明文，不含 pods/exec、不含任何写动词。
+# 注意：工具 server 是任何集群内 Pod 都能调用的内网服务（M1 尚无闸门 mTLS/NetworkPolicy
+# 强制），本 SA 的只读边界就是该服务被滥用时的爆炸半径上限。
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k8s-read
+  namespace: kagent
+  labels: {app: k8s-read, aegis.dev/component: mcp-server}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: k8s-read
+  labels: {app: k8s-read, aegis.dev/component: mcp-server}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "nodes", "events"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods", "nodes"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: k8s-read
+  labels: {app: k8s-read, aegis.dev/component: mcp-server}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: k8s-read
+subjects:
+  - kind: ServiceAccount
+    name: k8s-read
+    namespace: kagent

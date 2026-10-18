@@ -1,6 +1,6 @@
 # scan — 确定性规则巡检内核（I11 Tier-0）Backend 规范
 
-> 所属层：L2 闸门前置 · Tier-0 规则层 ｜ 里程碑：M1（落地方案 T1.11） ｜ 设计文档出处：§4.2.2 scanner、§2 I11 ｜ 关联不变量：I1/I2/I4/I11 ｜ 关联失败模式：R17（规则腐烂） ｜ Trellis 任务：`10-08-t1-4-scan-rule-layer`
+> 所属层：L2 闸门前置 · Tier-0 规则层 ｜ 里程碑：M1（落地方案 T1.11） ｜ 设计文档出处：§4.2.2 scanner、§2 I11 ｜ 关联不变量：I1/I2/I4/I11 ｜ 关联失败模式：R30（规则腐烂） ｜ Trellis 任务：`10-08-t1-4-scan-rule-layer`
 
 ## 1. 定位
 
@@ -50,7 +50,7 @@ cmd/aegis-cli/scan.go + policysource.go # 装配：CLI 子命令 + YAML 解码�
 | 数据最小化 | Snapshot 不含 Secret/env/镜像仓库全文；不可信文本 `clip` 截断单行化（I4） |
 | 结案标记 | `NextTier=false`=规则结案（喂 M3"规则层解决率"）；残差才置 true 上送 Tier-1/2 |
 
-## 5. 演进与腐烂防线（R17）
+## 5. 演进与腐烂防线（R30）
 
 - A 层新模式 = 一个 struct + `DefaultDetectors` 注册一行（不改引擎）。
 - B 层新规则 = 一个 YAML 条目（热修改即生效，无需发版）。

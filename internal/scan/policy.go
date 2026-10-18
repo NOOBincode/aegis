@@ -8,7 +8,7 @@ import (
 )
 
 // B 层：数据驱动结构缺陷 lint 规则（借鉴 kubeagent policy DSL，纯自研）。
-// 规则是数据不是代码——可热修改、可评审、可 eval（抗规则腐烂 R17 主载体）。
+// 规则是数据不是代码——可热修改、可评审、可 eval（抗规则腐烂 R30 主载体）。
 //
 // 领域纯净说明（铁律 2）：本文件只定义【已解析】的 PolicyRule 结构、强校验与
 // Evaluate 纯函数，不做 YAML 解码——YAML 文本 → []PolicyRule 的解码发生在装配边缘
@@ -76,8 +76,12 @@ func (r PolicyRule) Validate() error {
 		return fmt.Errorf("policy id 非法（须 ^[A-Za-z0-9._-]+$）：%q", r.ID)
 	}
 	switch r.Match.Kind {
-	case "Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob":
-		// 白名单 kind；刻意排除 Secret（防泄密进报告/SARIF）
+	case "Deployment":
+		// 当前 Snapshot 只采集 Deployment；只允许能真正评估的 kind。
+	case "StatefulSet", "DaemonSet", "Job", "CronJob":
+		// 刻意拒绝而不是"校验通过但 EvaluatePolicies 静默跳过"：静默不生效的规则
+		// 比没有规则更危险（报告显示"规则库已覆盖"实际从未执行）。接入对应采集后再放开。
+		return fmt.Errorf("policy %q kind %q 暂不支持（Snapshot 仅采集 Deployment，避免静默不生效）", r.ID, r.Match.Kind)
 	case "Secret", "ConfigMap":
 		return fmt.Errorf("policy %q 禁用涉密 kind %q（数据最小化）", r.ID, r.Match.Kind)
 	default:
@@ -95,7 +99,7 @@ func (r PolicyRule) Validate() error {
 			return fmt.Errorf("policy %q op=%q 需要 values", r.ID, r.Assert.Op)
 		}
 	}
-	// 数值比较 op 的 values 必须在加载期可解析（防一处 quantity 笔误让规则静默失效，R17）。
+	// 数值比较 op 的 values 必须在加载期可解析（防一处 quantity 笔误让规则静默失效，R30）。
 	switch r.Assert.Op {
 	case OpGt, OpGte, OpLt, OpLte:
 		for _, v := range r.Assert.Values {

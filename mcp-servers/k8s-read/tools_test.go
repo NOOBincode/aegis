@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aegis-dev/aegis/internal/mcpserver"
 	"github.com/aegis-dev/aegis/mcp-servers/k8s-read/reader"
@@ -117,11 +118,11 @@ func TestRequiredArgValidation(t *testing.T) {
 		tool string
 		args map[string]any
 	}{
-		{"get_pods", map[string]any{}},                              // 缺 ns
-		{"get_events", map[string]any{}},                            // 缺 ns
-		{"get_pod_logs", map[string]any{"ns": "default"}},           // 缺 name
-		{"describe_pod", map[string]any{"ns": "default"}},           // 缺 name
-		{"get_resource_metrics", map[string]any{"kind": "pods"}},    // 缺 ns
+		{"get_pods", map[string]any{}},                           // 缺 ns
+		{"get_events", map[string]any{}},                         // 缺 ns
+		{"get_pod_logs", map[string]any{"ns": "default"}},        // 缺 name
+		{"describe_pod", map[string]any{"ns": "default"}},        // 缺 name
+		{"get_resource_metrics", map[string]any{"kind": "pods"}}, // 缺 ns
 	}
 	for _, tc := range cases {
 		t.Run(tc.tool, func(t *testing.T) {
@@ -143,6 +144,9 @@ func TestLimitCap(t *testing.T) {
 	if !strings.Contains(res.Err.Message, "超上限") && !strings.Contains(res.Err.Message, "200") {
 		t.Errorf("错误应提示上限，got %q", res.Err.Message)
 	}
+	if res.Err.Class != mcpserver.ErrClassSchema || res.Err.Retryable {
+		t.Errorf("limit 超限应是不可重试 schema 错误，got %+v", res.Err)
+	}
 }
 
 // get_pod_logs 的 tail_lines 上限（≤500）。
@@ -151,5 +155,55 @@ func TestPodLogsTailCap(t *testing.T) {
 	res := invoke(t, reg, "get_pod_logs", map[string]any{"ns": "default", "name": "pod-a", "tail_lines": 9999})
 	if res.Err == nil {
 		t.Fatal("tail_lines 超 500 应报错")
+	}
+	if res.Err.Class != mcpserver.ErrClassSchema || res.Err.Retryable {
+		t.Errorf("tail_lines 超限应是不可重试 schema 错误，got %+v", res.Err)
+	}
+}
+
+// 事件时间窗解析：空=默认 1h；非法/非正经 schema 错误。
+func TestParseSince(t *testing.T) {
+	cases := []struct {
+		in      string
+		want    time.Duration
+		wantErr bool
+	}{
+		{"", defaultEventsSince, false},
+		{"30m", 30 * time.Minute, false},
+		{"1h", time.Hour, false},
+		{"-1h", 0, true},
+		{"0s", 0, true},
+		{"bad", 0, true},
+	}
+	for _, tc := range cases {
+		got, err := parseSince(tc.in)
+		if (err != nil) != tc.wantErr || got != tc.want {
+			t.Errorf("parseSince(%q)=(%v,%v), want (%v,err=%v)", tc.in, got, err, tc.want, tc.wantErr)
+		}
+	}
+}
+
+// get_events 默认只保留 1h 内事件：陈旧 Unhealthy/SystemOOM 不应继续污染诊断。
+func TestGetEventsSinceFiltersOld(t *testing.T) {
+	now := time.Now()
+	cs := fakeclient.NewSimpleClientset(
+		&corev1.Event{ObjectMeta: metav1.ObjectMeta{Name: "new", Namespace: "default"}, Reason: "RecentReason",
+			LastTimestamp: metav1.NewTime(now.Add(-time.Minute))},
+		&corev1.Event{ObjectMeta: metav1.ObjectMeta{Name: "old", Namespace: "default"}, Reason: "StaleReason",
+			LastTimestamp: metav1.NewTime(now.Add(-2 * time.Hour))},
+	)
+	r := reader.NewFromInterfaces(cs, metricsfake.NewSimpleClientset())
+	reg := mcpserver.NewRegistry()
+	registerTools(reg, r)
+	res := invoke(t, reg, "get_events", map[string]any{"ns": "default"})
+	if res.Err != nil {
+		t.Fatalf("get_events: %v", res.Err)
+	}
+	s, _ := res.Data.(string)
+	if !strings.Contains(s, "RecentReason") {
+		t.Errorf("近期事件应保留：%s", s)
+	}
+	if strings.Contains(s, "StaleReason") {
+		t.Errorf("陈旧事件不应出现：%s", s)
 	}
 }

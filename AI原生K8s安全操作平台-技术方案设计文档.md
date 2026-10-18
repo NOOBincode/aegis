@@ -3,7 +3,7 @@
 | 项 | 内容 |
 | --- | --- |
 | 项目代号 | `aegis`（暂定，宙斯盾——取"安全闸门"意象，随项目定盘可改） |
-| 文档版本 | v1.5（§10 批次 #2 红队回写 R16–R29：审批身份、L2 部署级强制力、verifier 契约、留痕不可变机制、注入瘫痪面、多操作事务语义、策略防篡改等；v1.4：§3.2 目录结构落地为轻型 DDD 分层 + 跨平台约定；v1.3：闸门自身失效语义补齐 + 规模化 HA 方向留档，R14–R15） |
+| 文档版本 | v1.6（I11 确定性扫描层 + R30 规则腐烂；v1.5：§10 批次 #2 红队回写 R16–R29；v1.4：§3.2 目录结构落地为轻型 DDD 分层 + 跨平台约定；v1.3：闸门自身失效语义补齐 + 规模化 HA 方向留档，R14–R15） |
 | 日期 | 2026-09-22 |
 | 对标/参考 | AgentCube（volcano-sh，沙箱/调度形态参照）、kagent（CNCF，Agent 运行时形态参照）、kubectl-ai / K8sGPT（交互形态参照）、agent-sandbox（kubernetes-sigs，沙箱底座现成件） |
 | 技术形态 | Go 控制面（CRD + controller + 策略闸门）+ Python/Go Agent 运行时（基于现成件二开）+ MCP 工具层 |
@@ -82,6 +82,7 @@
 | I8 | **eval 先行**：任何 prompt/模型/工具链变更，不过 eval 回归门禁不得发布 | 无 eval 的 Agent 迭代=裸奔 |
 | I9 | **先归因后行动**：任何状态变化先经确定性归因（所有权图谱+事件时间线）；能归因到健康控制器正常行为的变化不进入诊断、不触达写路径；Agent 永不与控制器争夺其字段所有权 | K8s 默认即多控制器并发系统（HPA/VPA/autoscaler/descheduler/operator/GitOps），"被干扰"是默认环境而非异常；局部正确的组件可组合出全局振荡 |
 | I10 | **失效姿态自明**：闸门不可用 = Agent 不可用 ≠ 集群不可用；写路径 fail-closed，读路径可降级只读直连；一切在途变更靠 CR 状态机 + finalizer 恢复，进程内存不持有不可恢复状态 | 安全组件的故障不能静默放行，也不能拖垮被管对象；平台是外挂控制环而非集群依赖 |
+| I11 | **规则先行，LLM 兜底**：诊断分三级流水线——Tier-0 确定性规则扫描（离线、零 LLM、零 token）→ Tier-1 归因（I9）→ Tier-2 LLM 仅处理前两级解释不了的残差；任何一层能结案就不惊动下一层 | I2 的极端形式；气隙/私域环境无 LLM API 可用，平台必须断网仍能产出价值；每前置一层，token 成本与隐私暴露面同步下降 |
 
 ---
 
@@ -250,6 +251,7 @@ aegis/
 - `authority-map`（I9）：确定性维护**字段级所有权图谱**。数据来源：`metadata.managedFields`（SSA 字段管理者）、HPA/VPA/KEDA ScaledObject 的目标引用、operator CRD 管辖范围、ArgoCD Application、descheduler/autoscaler 配置。任意对象的关键字段（replicas、resources、调度约束）都能回答"归谁管"，零 LLM 参与。
 - `attributor`（I9）：Agent 感知到的任何状态变化先过归因流水线：所有权图谱 + 事件时间线（K8s Events、audit log、HPA status、VPA recommendation、autoscaler 扩缩记录）+ 指标佐证。**能归因到健康控制器正常行为的变更=非事件**，只留痕不诊断；解释不了的残差才进入 LLM。归因先行同时大幅压缩 token 消耗。
 - `verifier`（R18）：执行后验证基于**确定性探针判据库**（pod ready、错误率阈值、指标回落方向），判据与阈值可评审、可版本化，验证窗口遵守 §4.2.4-3；LLM 评估结论仅作参考且**不得触发回滚**——回滚触发的判定与写放行同属确定性域（I1 边界向回滚方向延伸）；验证失败默认升人工而非自动回滚，防"误验证→错误回滚"（F18）。
+- `scanner`（I11）：Tier-0 确定性规则巡检内核。高频故障模式（OOM/CrashLoop/Pending/探针/驱逐等）以硬编码 Detector + YAML 规则库判定，**全程离线、零 LLM、零 token**；产出结构化 Finding（`NextTier=false` 即规则结案）与脱敏报告（JSON/SARIF/text），是 LLM/人审的前置过滤器。规则库是数据可热修改，规则腐烂以"规则层解决率"入 eval 一等指标（R30）。
 
 **4.2.3 关键取舍（ADR-001）**：R1 直写集群（低延迟、交互闭环）；R2 强制走 GitOps PR（评审与回滚天然自带）。代价是 R2 交互断裂，接受。
 
@@ -545,6 +547,7 @@ v1.0 定稿前首轮自审，发现项已全部回写正文。
 | R27 | P2 | 可靠 | 目标级冷却期管不了并发 CR：两个对同一对象的不同操作可同时进闸门 | 对象级互斥：在途 CR 目标冲突即拒绝后置；已回写 §5.1 |
 | R28 | P2 | 可靠 | `rollback.deadline` 超时"转人工"无闭环：人工介入入口、未介入悬挂巡检、漂移 diff 呈现均未定义 | deadline 到期自动转 `Aborted` + 悬挂告警 + 漂移 diff 落 DecisionRecord；接入 F14 巡检口径 |
 | R29 | P2 | 工程 | 16GB 内存底线无分配表：kind + Prometheus + ArgoCD + kagent + Langfuse + Chaos Mesh + gVisor 争内存，笔记本 OOM 是 Phase 0 可验证风险 | `deploy/versions.md` 增资源预算表；W2 出口自检实机压一遍（T0.2 收尾项） |
+| R30 | P2 | 工程 | Tier-0 规则层引入规则腐烂长尾：K8s 版本漂移与新故障模式使规则库持续失修，规则层解决率悄悄走低，报告看似"有覆盖"实则旧规则失效 | 规则是数据（YAML 热修改）+ golden fixture 漂移即失败；规则层解决率入 M3 eval 一等指标作腐烂信号；规则 kind 只允许当前 Snapshot 能评估的 Deployment，不支持的在加载期拒绝而非静默跳过（§4.2.2 scanner） |
 
 ---
 

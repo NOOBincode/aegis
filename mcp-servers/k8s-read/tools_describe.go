@@ -18,9 +18,10 @@ func getResourceMetrics(r *reader.Reader) mcpserver.Tool {
 			"type":     "object",
 			"required": []string{"kind"},
 			"properties": map[string]any{
-				"kind":  map[string]any{"type": "string", "enum": []string{"pods", "nodes"}, "description": "pods 或 nodes"},
-				"ns":    map[string]any{"type": "string", "description": "命名空间（kind=pods 时必填）"},
-				"limit": map[string]any{"type": "integer", "description": "返回上限，≤200"},
+				"kind":   map[string]any{"type": "string", "enum": []string{"pods", "nodes"}, "description": "pods 或 nodes"},
+				"ns":     map[string]any{"type": "string", "description": "命名空间（kind=pods 时必填）"},
+				"limit":  map[string]any{"type": "integer", "description": "返回上限，≤200"},
+				"cursor": map[string]any{"type": "string", "description": "分页游标"},
 			},
 		},
 		Metadata: roMeta(8000),
@@ -35,7 +36,7 @@ func getResourceMetrics(r *reader.Reader) mcpserver.Tool {
 				}
 				list, err := r.PodMetrics(ctx, ns, limit, cursor)
 				if err != nil {
-					return &mcpserver.Result{Err: mcpserver.NewToolError(mcpserver.ErrClassDownstream, true, "查 pod 指标失败: %v", err)}
+					return &mcpserver.Result{Err: toolError(err, "查 pod 指标失败")}
 				}
 				items := make([]map[string]any, 0, len(list.Items))
 				for _, pm := range list.Items {
@@ -51,7 +52,7 @@ func getResourceMetrics(r *reader.Reader) mcpserver.Tool {
 			case "nodes":
 				list, err := r.NodeMetrics(ctx, limit, cursor)
 				if err != nil {
-					return &mcpserver.Result{Err: mcpserver.NewToolError(mcpserver.ErrClassDownstream, true, "查 node 指标失败: %v", err)}
+					return &mcpserver.Result{Err: toolError(err, "查 node 指标失败")}
 				}
 				items := make([]map[string]any, 0, len(list.Items))
 				for _, nm := range list.Items {

@@ -51,11 +51,14 @@ func NewEngine(detectors []Detector, workers int, now func() time.Time) *Engine 
 // 返回确定性排序的 Result。policies 由调用方（service）在每次调用时装载——这是
 // 热修改的实现点：规则变更即下一次 Scan 生效，Engine 自身不缓存规则。
 func (e *Engine) Scan(s Snapshot, policies []PolicyRule) Result {
+	// 只把"近期"事件作为佐证：陈旧 SystemOOM/Unhealthy 会让 137 推断误归因到节点级 OOM，
+	// 或让早已恢复的探针失败继续命中（默认窗口见 eventEvidenceWindow）。
+	recent := filterRecentEvents(s.Events, e.now())
 	// 事件预索引（O(events) 一次建索引，替代逐 Pod 全扫的 O(pods×events)）。
-	byPod := indexEventsByPod(s.Events)
+	byPod := indexEventsByPod(recent)
 	// 节点佐证索引：内存压力状态 + 近期 SystemOOM 事件（供"无明确报错时的 OOM 推断"）。
 	nodePressure := indexNodeMemoryPressure(s.Nodes)
-	nodeSystemOOM := indexNodeSystemOOM(s.Events)
+	nodeSystemOOM := indexNodeSystemOOM(recent)
 
 	// A 层：运行时故障根因（按 Pod 有界并行）。构造 PodFacts 时预合并容器（All），
 	// 避免每个 detector 对同一 Pod 重复合并 init+常规容器（消除 d×p 次重复分配）。
@@ -98,6 +101,23 @@ func (e *Engine) Scan(s Snapshot, policies []PolicyRule) Result {
 		ResolvedByRules: resolved,
 		GeneratedAt:     e.now(),
 	}
+}
+
+// eventEvidenceWindow 是"近期事件"的默认佐证窗口。窗口内的 SystemOOM/Unhealthy
+// 才允许参与 OOM/探针归因；窗口外事件仍保留在 Snapshot 里供原始报告回溯，但不参与判定。
+const eventEvidenceWindow = time.Hour
+
+// filterRecentEvents 过滤事件佐证时间窗。LastSeen 为零（fake/旧对象）时保留，
+// 避免测试与兼容路径因缺时间戳被静默丢证据；真实事件由适配层写入 LastSeen。
+func filterRecentEvents(events []EventInfo, now time.Time) []EventInfo {
+	out := make([]EventInfo, 0, len(events))
+	for _, ev := range events {
+		if !ev.LastSeen.IsZero() && now.Sub(ev.LastSeen) > eventEvidenceWindow {
+			continue
+		}
+		out = append(out, ev)
+	}
+	return out
 }
 
 // podKey 事件索引键（ns + 名字）。

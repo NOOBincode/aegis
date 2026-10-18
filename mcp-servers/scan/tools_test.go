@@ -60,14 +60,14 @@ func TestScanClusterHandlerArgParsing(t *testing.T) {
 		t.Errorf("since 传递错误：%d", fs.gotOpts.SinceSeconds)
 	}
 
-	// 缺省参数：namespace 空、since 0。
+	// 缺省参数：namespace 空、since 走默认 1h（防陈旧事件误归因）。
 	fs2 := &fakeScanner{res: sampleScanResult()}
 	h2 := scanClusterHandler(fs2)
 	if res := h2(context.Background(), map[string]any{}); res.Err != nil {
 		t.Fatalf("空参数应正常（默认全集群）：%v", res.Err)
 	}
-	if fs2.gotOpts.Namespace != "" || fs2.gotOpts.SinceSeconds != 0 {
-		t.Errorf("缺省参数应为空/0：%+v", fs2.gotOpts)
+	if fs2.gotOpts.Namespace != "" || fs2.gotOpts.SinceSeconds != defaultEventSinceSeconds {
+		t.Errorf("缺省参数应为空/%d：%+v", defaultEventSinceSeconds, fs2.gotOpts)
 	}
 }
 
@@ -106,7 +106,10 @@ func TestScanClusterResultData(t *testing.T) {
 func TestScanClusterTextFormat(t *testing.T) {
 	fs := &fakeScanner{res: sampleScanResult()}
 	res := scanClusterHandler(fs)(context.Background(), map[string]any{"format": "text"})
-	data := res.Data.(map[string]any)
+	data, ok := res.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("Data 应为 map，got %T", res.Data)
+	}
 	rt, ok := data["report_text"].(string)
 	if !ok || !strings.Contains(rt, "OOMKilled") {
 		t.Errorf("format=text 应附 report_text 且含根因：%v", data["report_text"])
@@ -120,7 +123,10 @@ func TestScanClusterSARIFFormat(t *testing.T) {
 	if res.Err != nil {
 		t.Fatalf("sarif 不应报错：%v", res.Err)
 	}
-	data := res.Data.(map[string]any)
+	data, ok := res.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("Data 应为 map，got %T", res.Data)
+	}
 	rs, ok := data["report_sarif"].(string)
 	if !ok {
 		t.Fatalf("format=sarif 应附 report_sarif：%v", data)

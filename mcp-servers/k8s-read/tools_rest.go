@@ -7,6 +7,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/aegis-dev/aegis/internal/mcpserver"
 	"github.com/aegis-dev/aegis/mcp-servers/k8s-read/reader"
@@ -25,7 +28,7 @@ func getDeployments(r *reader.Reader) mcpserver.Tool {
 			}
 			list, err := r.Deployments(ctx, ns, argStr(args, "label_selector"), argLimit(args), argStr(args, "cursor"))
 			if err != nil {
-				return &mcpserver.Result{Err: mcpserver.NewToolError(mcpserver.ErrClassDownstream, true, "列举 deployments 失败: %v", err)}
+				return &mcpserver.Result{Err: toolError(err, "列举 deployments 失败")}
 			}
 			items := make([]map[string]any, 0, len(list.Items))
 			for _, d := range list.Items {
@@ -60,7 +63,7 @@ func getNodes(r *reader.Reader) mcpserver.Tool {
 		Handler: func(ctx context.Context, args map[string]any) *mcpserver.Result {
 			list, err := r.Nodes(ctx, argLimit(args), argStr(args, "cursor"))
 			if err != nil {
-				return &mcpserver.Result{Err: mcpserver.NewToolError(mcpserver.ErrClassDownstream, true, "列举 nodes 失败: %v", err)}
+				return &mcpserver.Result{Err: toolError(err, "列举 nodes 失败")}
 			}
 			items := make([]map[string]any, 0, len(list.Items))
 			for _, n := range list.Items {
@@ -91,9 +94,10 @@ func getEvents(r *reader.Reader) mcpserver.Tool {
 			"type":     "object",
 			"required": []string{"ns"},
 			"properties": map[string]any{
-				"ns":    map[string]any{"type": "string", "description": "命名空间（必填）"},
-				"since": map[string]any{"type": "string", "description": "时间窗，如 30m/1h（超配置上限按上限截断）"},
-				"limit": map[string]any{"type": "integer", "description": "返回上限，≤200"},
+				"ns":     map[string]any{"type": "string", "description": "命名空间（必填）"},
+				"since":  map[string]any{"type": "string", "description": "时间窗，如 30m/1h；缺省 1h（仅过滤返回页，分页用 cursor）"},
+				"limit":  map[string]any{"type": "integer", "description": "返回上限，≤200"},
+				"cursor": map[string]any{"type": "string", "description": "分页游标（上一页 truncated 时返回的 next_cursor）"},
 			},
 		},
 		Metadata: roMeta(8000),
@@ -102,18 +106,32 @@ func getEvents(r *reader.Reader) mcpserver.Tool {
 			if perr != nil {
 				return &mcpserver.Result{Err: perr}
 			}
+			since, err := parseSince(argStr(args, "since"))
+			if err != nil {
+				return &mcpserver.Result{Err: mcpserver.NewToolError(mcpserver.ErrClassSchema, false, "since 非法：%v", err)}
+			}
 			list, err := r.Events(ctx, ns, argLimit(args), argStr(args, "cursor"))
 			if err != nil {
-				return &mcpserver.Result{Err: mcpserver.NewToolError(mcpserver.ErrClassDownstream, true, "列举 events 失败: %v", err)}
+				return &mcpserver.Result{Err: toolError(err, "列举 events 失败")}
 			}
+			cutoff := time.Now().Add(-since)
 			items := make([]map[string]any, 0, len(list.Items))
 			for _, e := range list.Items {
+				var last time.Time
+				if !e.LastTimestamp.IsZero() {
+					last = e.LastTimestamp.Time
+				} else if !e.EventTime.IsZero() {
+					last = e.EventTime.Time
+				}
+				if !last.IsZero() && last.Before(cutoff) {
+					continue
+				}
 				items = append(items, map[string]any{
 					"reason":  e.Reason,
 					"type":    e.Type,
 					"object":  fmt.Sprintf("%s/%s", e.InvolvedObject.Kind, e.InvolvedObject.Name),
 					"message": e.Message,
-					"age":     reader.Age(e.LastTimestamp),
+					"age":     reader.Age(metav1.NewTime(last)),
 				})
 			}
 			res, _ := listData(items, list.Continue)
@@ -151,21 +169,45 @@ func getPodLogs(r *reader.Reader) mcpserver.Tool {
 			if tail == 0 {
 				tail = 200 // 默认尾部 200 行
 			}
-			logs, err := r.PodLogs(ctx, ns, name, argStr(args, "container"), tail, argInt64(args, "since_seconds"))
+			logs, truncated, err := r.PodLogs(ctx, ns, name, argStr(args, "container"), tail, argInt64(args, "since_seconds"))
 			if err != nil {
-				return &mcpserver.Result{Err: mcpserver.NewToolError(mcpserver.ErrClassDownstream, true, "读 pod 日志失败: %v", err)}
+				return &mcpserver.Result{Err: toolError(err, "读 pod 日志失败")}
 			}
-			lines := strings.Split(strings.TrimRight(logs, "\n"), "\n")
-			items := make([]map[string]any, 0, len(lines))
-			for i, ln := range lines {
-				items = append(items, map[string]any{"line": i + 1, "content": ln})
+			items := make([]map[string]any, 0, tail)
+			if s := strings.TrimRight(logs, "\n"); s != "" {
+				for i, ln := range strings.Split(s, "\n") {
+					items = append(items, map[string]any{"line": i + 1, "content": ln})
+				}
 			}
-			return &mcpserver.Result{Data: map[string]any{
+			res := &mcpserver.Result{Data: map[string]any{
 				"items":        items,
 				"object_count": len(items),
 				"pod":          name,
 				"tail_lines":   tail,
+				"max_bytes":    reader.MaxLogBytes,
 			}}
+			if truncated {
+				res.Meta.Truncated = true
+			}
+			return res
 		},
 	}
+}
+
+// defaultEventsSince 是 get_events 未显式传 since 时的默认时间窗。
+const defaultEventsSince = time.Hour
+
+// parseSince 解析事件时间窗（如 30m/1h）；空串走默认 1h。
+func parseSince(s string) (time.Duration, error) {
+	if s == "" {
+		return defaultEventsSince, nil
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, err
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("since 必须为正时长")
+	}
+	return d, nil
 }

@@ -9,8 +9,12 @@
 package reader
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"strconv"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -25,8 +29,15 @@ import (
 
 // 硬上限（设计文档 §4.1）。
 const (
-	MaxObjects  = 200 // 单次列举对象上限
-	MaxLogLines = 500 // 单次日志行数上限
+	MaxObjects  = 200       // 单次列举对象上限
+	MaxLogLines = 500       // 单次日志行数上限
+	MaxLogBytes = 512 << 10 // 单次日志总字节上限（500 行 × 超长行不能打爆内存/I4 上下文）
+)
+
+// 分页/日志上限错误的哨兵：上层据此返回 schema 错误而不是"下游可重试"。
+var (
+	ErrInvalidPaging   = errors.New("invalid list paging")
+	ErrInvalidLogLimit = errors.New("invalid log limit")
 )
 
 // Reader 聚合只读客户端。
@@ -78,12 +89,12 @@ func listOpts(limit, cursor string) (metav1.ListOptions, error) {
 		o.Limit = MaxObjects
 		return o, nil
 	}
-	var n int
-	if _, err := fmt.Sscanf(limit, "%d", &n); err != nil {
-		return o, fmt.Errorf("limit 非法（须整数）: %q", limit)
+	n, err := strconv.Atoi(limit)
+	if err != nil {
+		return o, fmt.Errorf("%w: limit 非法（须整数）%q", ErrInvalidPaging, limit)
 	}
 	if n <= 0 || n > MaxObjects {
-		return o, fmt.Errorf("limit 超上限：须 1..%d，got %d", MaxObjects, n)
+		return o, fmt.Errorf("%w: limit 超上限，须 1..%d，got %d", ErrInvalidPaging, MaxObjects, n)
 	}
 	o.Limit = int64(n)
 	return o, nil
@@ -147,10 +158,12 @@ func (r *Reader) Events(ctx context.Context, ns, limit, cursor string) (*corev1.
 	return r.cs.CoreV1().Events(ns).List(ctx, o)
 }
 
-// PodLogs 读取单 Pod 日志（行数上限 + 容器 + 时间窗）。
-func (r *Reader) PodLogs(ctx context.Context, ns, name, container string, tailLines int64, sinceSeconds int64) (string, error) {
+// PodLogs 读取单 Pod 日志（行数 + 总字节双上限 + 容器 + 时间窗）。
+// 返回 truncated=true 表示日志被字节上限截断（调用方在 meta.truncated 标注），
+// 读流错误不再被当成 EOF 静默返回半截日志。
+func (r *Reader) PodLogs(ctx context.Context, ns, name, container string, tailLines int64, sinceSeconds int64) (string, bool, error) {
 	if tailLines <= 0 || tailLines > MaxLogLines {
-		return "", fmt.Errorf("tail_lines 超上限：须 1..%d，got %d", MaxLogLines, tailLines)
+		return "", false, fmt.Errorf("%w: tail_lines 须 1..%d，got %d", ErrInvalidLogLimit, MaxLogLines, tailLines)
 	}
 	opt := &corev1.PodLogOptions{TailLines: &tailLines}
 	if container != "" {
@@ -161,19 +174,23 @@ func (r *Reader) PodLogs(ctx context.Context, ns, name, container string, tailLi
 	}
 	stream, err := r.cs.CoreV1().Pods(ns).GetLogs(name, opt).Stream(ctx)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	defer stream.Close()
-	buf := make([]byte, 0, 4096)
-	tmp := make([]byte, 4096)
-	for {
-		n, err := stream.Read(tmp)
-		buf = append(buf, tmp[:n]...)
-		if err != nil {
-			break
+	defer func() { _ = stream.Close() }() // 只读流关闭失败不改变已取得的日志内容
+
+	data, err := io.ReadAll(io.LimitReader(stream, MaxLogBytes+1))
+	if err != nil {
+		return "", false, fmt.Errorf("读日志流失败: %w", err)
+	}
+	truncated := len(data) > MaxLogBytes
+	if truncated {
+		data = data[:MaxLogBytes]
+		// 尽量在行边界截断，避免把半行 JSON/时间戳喂给 LLM。
+		if i := bytes.LastIndexByte(data, '\n'); i >= 0 {
+			data = data[:i+1]
 		}
 	}
-	return string(buf), nil
+	return string(data), truncated, nil
 }
 
 // Pod 取单 Pod（describe 用）。

@@ -58,7 +58,7 @@ func (e *Engine) Scan(s Snapshot, policies []PolicyRule) Result
 | --- | --- |
 | id 不匹配 `^[A-Za-z0-9._-]+$` | 拒绝 |
 | kind ∈ {Secret, ConfigMap} | 拒绝（数据最小化防泄密） |
-| kind 不在白名单（Deployment/StatefulSet/DaemonSet/Job/CronJob） | 拒绝 |
+| kind ≠ Deployment（StatefulSet/DaemonSet/Job/CronJob 暂不支持） | 拒绝（Snapshot 只采集 Deployment；禁止"校验通过但 EvaluatePolicies 永不执行"的静默规则） |
 | op 不在封闭集 | 拒绝 |
 | path 不在白名单（containers 的 limits/probes/privileged/imageTag 等） | 拒绝 |
 | gt/gte/lt/lte 的 values 不可解析为 quantity | 拒绝（防静默失效） |
@@ -76,7 +76,7 @@ func (e *Engine) Scan(s Snapshot, policies []PolicyRule) Result
 - OOM 互斥：OOMKilled 容器**不再**报 CRASH_LOOP/RESTART_LOOP。
 - 137-only 推断：节点压力佐证 vs 容器 limit 佐证 vs 无佐证 三分支。
 - quantity：`500m`/`1.5Gi`/`abc`（不可解析→0 且校验拦截）。
-- 默认规则包：`DefaultReliabilityYAML` 可解码 + `ValidateRuleSet` 通过 + 含预期 id（抗 R17 静默退化）。
+- 默认规则包：`DefaultReliabilityYAML` 可解码 + `ValidateRuleSet` 通过 + 含预期 id（抗 R30 静默退化）。
 - golden：`golden_test.go` 固化 OOM 场景结案（`NextTier=false`）。
 
 ## 7. Wrong vs Correct

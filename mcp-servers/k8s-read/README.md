@@ -28,7 +28,7 @@ k8s-read 是 M1 的主战场：诊断闭环的第一步"查得到"全靠它。�
 
 ## 4. 具体设计（不写代码）
 
-**统一返回结构**（所有 8 个工具）：`items`（条目列表）、`object_count`（实际返回数）、`truncated`（是否触顶）、`next_cursor`（分页游标，触顶时给出）、`sanitized_wrapped`（包裹标记恒为 true）。所有条目字段值一律视为不可信数据。
+**统一返回结构**（所有 8 个工具）：`data`（`items` + `object_count` 等业务字段）、`meta.truncated`（是否触顶/日志字节截断）、`meta.next_cursor`（分页游标，触顶时给出）、`meta.wrapped`（I4 包裹标记，Data 非空时 true）。框架将 `data` 序列化成 `<untrusted_cluster_data>...</untrusted_cluster_data>` 字符串返回，条目字段值一律视为不可信数据。
 
 **工具清单与强制上限**：
 
@@ -37,8 +37,8 @@ k8s-read 是 M1 的主战场：诊断闭环的第一步"查得到"全靠它。�
 | 1 | get_pods | ns（必填）、label_selector、limit | limit ≤200，超者拒绝并 429 + 合法值引导 | name、phase、restarts、node、age、owner_kind |
 | 2 | get_deployments | ns（必填）、label_selector、limit | limit ≤200 | name、replicas 三元组（期望/可用/更新中）、age |
 | 3 | get_nodes | limit | limit ≤200（集群节点规模小，触顶罕见但纪律一致） | name、ready、taints 数、age |
-| 4 | get_events | ns（必填）、since（时间窗）、limit | limit ≤200；时间窗超配置上限时按上限截断并标注 | 见 events server 的对齐格式（本工具为基础列举版） |
-| 5 | get_pod_logs | ns、name（必填）、container、tail_lines、since_seconds | tail_lines ≤500；单行超长截断并标注 | 行号、timestamp（解析失败标 null）、content |
+| 4 | get_events | ns（必填）、since（如 30m/1h，缺省 1h）、limit、cursor | limit ≤200；服务端无时间过滤，按返回页过滤并在截断时带 next_cursor | 见 events server 的对齐格式（本工具为基础列举版） |
+| 5 | get_pod_logs | ns、name（必填）、container、tail_lines、since_seconds | tail_lines ≤500；总字节 ≤512KiB（超限在 meta.truncated 标注） | 行号、content；当前不解析 timestamp |
 | 6 | get_resource_metrics | kind ∈ pods/nodes、ns（kind=pods 时必填）、limit | limit ≤200 | name、cpu、memory（metrics.k8s.io 数值） |
 | 7 | describe_pod | ns、name（必填） | 输出超字节上限时截断尾部并标注 | name、conditions、container_states、events 摘要 |
 | 8 | describe_deployment | ns、name（必填） | 同上字节上限 | name、conditions、replicas 明细、events 摘要 |
@@ -47,7 +47,7 @@ k8s-read 是 M1 的主战场：诊断闭环的第一步"查得到"全靠它。�
 
 | 工具 | risk_hint | idempotent | reversible | est_blast_radius | timeout_ms（建议初值） |
 | --- | --- | --- | --- | --- | --- |
-| 8 个全部 | R0 | true | true（只读天然可逆） | 0 | 10000 |
+| 8 个全部 | R0 | true | false（只读无逆操作，不代表可回滚） | 0 | 8000~10000（见各工具） |
 
 timeout_ms 为建议初值，随 kind 压测校准后登记进各工具注册表，不在本文档钉死。
 
@@ -57,7 +57,7 @@ timeout_ms 为建议初值，随 kind 压测校准后登记进各工具注册表
 
 | 错误类别 | 检测手段 | 处置策略 | fail-closed / 降级 | 对应 |
 | --- | --- | --- | --- | --- |
-| 参数非法（E-SCHEMA） | ns/name 空值、limit 超上限、label_selector 语法错 | 拒绝 + 语义化错误 + 合法上限提示 | 直接失败（读路径无放行概念） | I3 |
+| 参数非法（E-SCHEMA） | ns/name 空值、limit 超上限、tail_lines 超上限、since 非法 | `schema_validation` 工具错误（不可重试）+ 合法范围提示 | 直接失败（读路径无放行概念） | I3 |
 | 预算耗尽（E-QUOTA） | `internal/budget` 会话 token / QPS 窗口计数 | 429 语义 + 已消耗/上限告知；会话级耗尽时返回暂停语义 | 降级：本调用失败，会话由运行时输出当前结论（F4 处置） | F4、F5 |
 | apiserver 超时/5xx（E-UPSTREAM） | 出站调用超时器与状态码 | 返回 upstream_error，不重试放大压力 | 读路径允许 L2 降级只读直连并标注降级态（I10）；本层如实报错不粉饰 | I10 |
 | 对象不存在 | apiserver 404 | 返回空结果 + not_found 标记（正常路径，非错误） | — | — |
@@ -83,7 +83,7 @@ timeout_ms 为建议初值，随 kind 压测校准后登记进各工具注册表
 ## 8. 测试策略与红队用例
 
 - **单测**：参数校验边界表（limit=0、limit=201、tail_lines=501、label_selector 语法错）；截断与游标生成的表驱动用例。
-- **集成测试**：kind 实集群全 8 工具；超限请求 429 + 分页引导（T1.2 完成判据）；OOMKilled 场景下 get_pod_logs 能拿到退出原因行（服务 M1 验收演示）。
+- **集成测试（现状，诚实口径）**：kind 实集群覆盖 `get_nodes/get_pods/get_deployments/get_events`；`get_resource_metrics` 依赖 metrics-server，未装时跳过；`get_pod_logs/describe_*` 的 kind 集成用例待补（T1.2 的"8 工具全绿"仅指单测/注册与 4 个工具的实集群调用）。
 - **红队用例**：
   1. 注入初测（M1 检查点 #1）：在 Pod 日志夹带指令型文本，验证返回带 `<untrusted_cluster_data>` 包裹、事件留痕、Agent 侧不产生写意图（I4/F2）；
   2. 超大 list 尝试（F5）：label_selector 全匹配 + limit=10000，验证拒绝 + 引导而非执行；

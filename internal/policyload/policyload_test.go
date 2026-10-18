@@ -8,7 +8,7 @@ import (
 	"github.com/aegis-dev/aegis/internal/scan"
 )
 
-// TestDefaultRulesDecode 验证嵌入默认规则包可解码且通过强校验（抗 R17 静默退化）。
+// TestDefaultRulesDecode 验证嵌入默认规则包可解码且通过强校验（抗 R30 静默退化）。
 func TestDefaultRulesDecode(t *testing.T) {
 	rules, err := DefaultRules()
 	if err != nil {

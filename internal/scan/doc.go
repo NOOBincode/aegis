@@ -12,7 +12,7 @@
 //
 // 规则库双层（借鉴 kubeagent 已验证形态，纯自研、零外部依赖）：
 //   - A 层 Detector：硬编码 Go，运行时故障根因判定（Detect(PodFacts) *Finding）。
-//   - B 层 Policy：数据驱动 YAML 结构缺陷 lint，规则是数据可热修改（抗规则腐烂 R17）。
+//   - B 层 Policy：数据驱动 YAML 结构缺陷 lint，规则是数据可热修改（抗规则腐烂 R30）。
 //
 // 取数经 ports.go 的 SnapshotProvider 抽象，由 internal/adapters/k8s 实现（铁律 1）；
 // 引擎只面向 Snapshot/Finding 纯结构，与 client-go 完全解耦。

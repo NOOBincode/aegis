@@ -87,11 +87,12 @@ func scanOutput(cmd *cobra.Command, output string) (io.Writer, func(), error) {
 	if output == "" {
 		return cmd.OutOrStdout(), func() {}, nil
 	}
+	//nolint:gosec // G304: 输出路径由 CLI 用户显式指定，不是服务端可控输入
 	f, err := os.Create(output)
 	if err != nil {
 		return nil, func() {}, fmt.Errorf("创建输出文件: %w", err)
 	}
-	return f, func() { f.Close() }, nil
+	return f, func() { _ = f.Close() }, nil
 }
 
 // defaultKubeconfig 默认 ~/.kube/config。

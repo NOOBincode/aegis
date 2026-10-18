@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -65,6 +66,13 @@ func (p *ScanSnapshotProvider) Collect(ctx context.Context, opts scan.CollectOpt
 
 	var snap scan.Snapshot
 	var blind []string
+	// 截断必须进盲点：只取第一页（Limit 上限）却静默当"全量扫描"会造成假阴性
+	// （OOM Pod 落在第 201 个时报告仍显示无异常）。MVP 不隐式翻页放大 QPS（F5），
+	// 但必须让调用方/报告知道覆盖不完整。
+	noteTruncation("pods", pods, &blind)
+	noteTruncation("deployments", deploys, &blind)
+	noteTruncation("nodes", nodes, &blind)
+	noteTruncation("events", events, &blind)
 	// 逐类归并：硬错误（连接级）返回 error；可降级错误记盲点。
 	if err := collectErr("pods", podsErr, &blind); err != nil {
 		return snap, err
@@ -125,9 +133,41 @@ func collectErr(kind string, err error, blind *[]string) error {
 }
 
 // listOpts 分页参数（上限 200）。MVP 单页采集，不隐式翻页放大 QPS（F5）；
-// 规则巡检的覆盖广度上限即 collectMaxObjects，触顶截断由盲点/覆盖度感知。
+// 规则巡检的覆盖广度上限即 collectMaxObjects；触顶时 noteTruncation 写入盲点，
+// 报告 executionSuccessful=false，绝不静默当"全量扫描过"。
 func listOpts() metav1.ListOptions {
 	return metav1.ListOptions{Limit: collectMaxObjects}
+}
+
+// noteTruncation 把 List 的 Continue 游标（非空=还有下一页）记为采集盲点。
+// 不记录游标值本身（opaque token 无审计价值，且可能很长）。
+func noteTruncation(kind string, list any, blind *[]string) {
+	type continued interface{ GetContinue() string }
+	// typed List 的 ListMeta 不实现方法；用类型开关覆盖四类。
+	var cont string
+	switch v := list.(type) {
+	case *corev1.PodList:
+		if v != nil {
+			cont = v.Continue
+		}
+	case *appsv1.DeploymentList:
+		if v != nil {
+			cont = v.Continue
+		}
+	case *corev1.NodeList:
+		if v != nil {
+			cont = v.Continue
+		}
+	case *corev1.EventList:
+		if v != nil {
+			cont = v.Continue
+		}
+	case continued:
+		cont = v.GetContinue()
+	}
+	if cont != "" {
+		*blind = append(*blind, kind+":truncated@limit="+strconv.Itoa(collectMaxObjects))
+	}
 }
 
 // listPods/Deployments/Nodes/Events 各拉一页（上限即上限）。
