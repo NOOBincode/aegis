@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 6
+- **Total Sessions**: 7
 - **Last Active**: 2026-10-19
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~187 | Active |
+| `journal-1.md` | ~218 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 7 | 2026-10-19 | T1.10 Agent 端到端安全测试（临时 DeepSeek 通道） | `4ed1de1` | `fix/m1-blockers` |
 | 6 | 2026-10-19 | 竞争态/渗透/回归：便携 gcc、I4 强化、安全冒烟、benchmark | `4c87e6b`, `47ceb79` | `fix/m1-blockers` |
 | 5 | 2026-10-19 | T1.10 OOMKilled 场景与 137 推断实测 | `87a9143` | `fix/m1-blockers` |
 | 4 | 2026-10-19 | M1 阻塞修复：环境/交付/安全/CI | `98314f8`, `357dbe9` | `fix/m1-blockers` |

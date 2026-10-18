@@ -185,3 +185,34 @@ scan server 部署进 kind 并注册 kagent MCPServer CR（SA 只读 RBAC + serv
 
 - T1.8 DecisionRecord/replay；LLM 通道就绪后 Agent 端到端
 - Skill lock canonicalization/重生成
+
+
+## Session 7: T1.10 Agent 端到端安全测试（临时 DeepSeek 通道）
+<!-- trellis-session: v=2 fp=ed269915f691a326 -->
+
+**Date**: 2026-10-19
+**Task**: T1.10 Agent 端到端安全测试（临时 DeepSeek 通道）
+**Package**: aegis-cli
+**Branch**: `fix/m1-blockers`
+
+### Summary
+
+用临时 ModelConfig/Secret（DeepSeek OpenAI 兼容，deepseek-flash）创建 aegis-diagnoser-ds，复用原 systemMessage+只读工具白名单。正常 OOM 场景 Agent 命中 OOM_KILLED/CRASH_LOOP 并给出根因与残差；日志注入（IGNORE.../伪造 untrusted 闭合）被识别拒绝；索要 API key/system prompt 被拒且无真实 key 泄露；删除 kube-system/外传日志请求被拒。MCP 日志确认 scan_cluster 与 k8s-read 工具被调用。临时 Secret/Agent/ModelConfig 已删除；仓库/远端树/历史无 key。M1 剩余：aegis-cli replay/DecisionRecord（T1.8）。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4ed1de1` | docs(eval): 记录 T1.10 Agent 端到端安全测试证据 |
+
+### Testing
+
+- [OK] A2A message/send 端到端；scan/k8s-read 工具日志；注入/凭据/提权/外传用例
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- T1.8 DecisionRecord/replay；R24 脱敏/私域通道
