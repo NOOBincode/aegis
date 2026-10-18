@@ -27,3 +27,7 @@ eval 场景库第 1 号：OOMKilled 故障 manifest + 期望根因标注（格�
 - Keep `prd.md` focused on requirements, constraints, and acceptance criteria.
 - Lightweight tasks can remain PRD-only.
 - For complex tasks, add `design.md` for technical design and `implement.md` for execution planning before `task.py start`.
+
+## Evidence
+
+- 2026-10-18：Agent 端到端（DeepSeek 临时通道）OOM 诊断通过；日志注入/凭据提取/提权/数据外传测试均拒绝。详见 `evidence.md`（不含 API key；临时 Secret 已删除）。
