@@ -24,7 +24,7 @@
 - `make lint`（逐 module）12 个 module 0 issues。
 - 根与全部 module `go test ./...` 通过（本机无 gcc，`make test` 明确提示 `-race` 需要 cgo；未伪造 race 结果）。
 - kind 实机：`k8s-read` 0.2.0 `tools/list` 8 工具；`get_pods` 返回真实对象；`get_resource_metrics` 返回节点指标；`scan_cluster` 返回 findings；`kubectl auth can-i` 对 k8s-read/scan 的只读/无 secret 断言通过。
-- kagent controller/Agent `aegis-diagnoser`/metrics-server Ready；kagent-tools ClusterRoleBinding 与 Deployment 均不存在；NetworkPolicy 已 apply（kindnet 不强制，脚本说明）。
+- kagent controller/Agent `aegis-diagnoser`/metrics-server Ready；kagent-tools ClusterRoleBinding 与 Deployment 均不存在；NetworkPolicy 已 apply 且实测强制：default namespace curl 被阻断，kagent namespace curl 放行；删除策略后立即恢复放行。
 - 环境恢复方式：先 scale 掉 demo agents/kagent-tools、Chaos 3→1 释放 inotify 实例，重启 kube-proxy/CoreDNS/kagent-controller；根治仍要求宿主抬 `fs.inotify.max_user_instances`（未在无 root 会话内执行）。
 
 ## 未做

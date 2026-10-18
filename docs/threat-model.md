@@ -66,7 +66,7 @@
 | AS-08 | I10 | 闸门无状态化 + leader election 单写者 + CR 状态机在途恢复 + fail-closed 写路径 + Executing 超时巡检 | F14 | 闸门不可用 ≠ 集群可用性受损；绝不"挂了先放行" |
 | AS-09 | I5 | rollbacker：逆操作强制 dry-run 验证 + 回滚前漂移复验 + `rollback.deadline` 超时转人工 | F6 | 逆操作无法生成即自动升 R2 |
 | AS-10 | I3 | 依赖纪律（理由 + license 陈述）、版本钉死（`deploy/versions.md`）、写工具逐人过红队 | F9 | 闸门代码 AI 产出 100% 逐行人审（R-2） |
-| AS-15 | I3、I10、R17 | `scripts/env-up.sh` 默认关闭 kagent-tools（其 ClusterRole 为 `*/*/*`）与 demo agents；自研 MCP server 只授只读 SA（`deploy/mcp-servers/*-rbac.yaml`）；`deploy/security/kagent-mcp-networkpolicy.yaml` 预留入站白名单。**kindnet 不实现 NetworkPolicy**，M1 的有效控制是关闭 cluster-admin 工具 + SA 只读，M2 再以 mTLS/gatekeeper 代理强制 | F9 | M1 残余风险：同命名空间 Pod 仍可直连只读 server（读面），已用 SA 最小权限封顶；跨命名空间网络强制待 Calico/Cilium 或 M2 |
+| AS-15 | I3、I10、R17 | `scripts/env-up.sh` 默认关闭 kagent-tools（其 ClusterRole 为 `*/*/*`）与 demo agents；自研 MCP server 只授只读 SA（`deploy/mcp-servers/*-rbac.yaml`）；`deploy/security/kagent-mcp-networkpolicy.yaml` 入站白名单。本 kind（kindnet v20241108）实测强制：default→scan 阻断、kagent→scan 放行；换 CNI 需用 `scripts/security-smoke.sh` 复测。M1 的有效控制是关闭 cluster-admin 工具 + SA 只读 + 入站白名单，M2 再以 mTLS/gatekeeper 代理强制 | F9 | M1 残余风险：同命名空间 Pod 仍可直连只读 server（读面），已用 SA 最小权限封顶；跨命名空间已由 NetworkPolicy 阻断（本环境实测） |
 
 ## 6. 红队评审记录（首轮：设计文档 §10 定稿前自审）
 

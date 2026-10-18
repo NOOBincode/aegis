@@ -3,7 +3,7 @@
 # 前置：make up（集群+kagent）与 make mcp-images（镜像已 kind load）。
 # 用法：mcp-up.sh [--with-agent] [--with-networkpolicy]
 #   --with-agent         同时 apply deploy/agent（LLM 通道未就绪时 Agent 会不可用，默认不 apply）
-#   --with-networkpolicy 同时 apply NetworkPolicy（kindnet 不强制它；见清单头注释）
+#   --with-networkpolicy 同时 apply NetworkPolicy（本 kind 实测强制；换 CNI 后需复测）
 # 退出码：0 成功；2 前置缺失；3 部署/就绪超时。
 set -euo pipefail
 
@@ -67,7 +67,7 @@ info rbac_assert result=ok
 
 if [ "$WITH_NETPOL" -eq 1 ]; then
   apply deploy/security/kagent-mcp-networkpolicy.yaml
-  warn netpol "error_class=cni_not_enforcing" "hint=kind 默认 kindnet 不实现 NetworkPolicy；该清单在 Calico/Cilium 下才强制（清单头注释已明示）"
+  info netpol result=applied "hint=本 kind 实测 default→scan 被阻断、kagent→scan 放行；换 CNI 后用 scripts/security-smoke.sh 复测"
 fi
 
 if [ "$WITH_AGENT" -eq 1 ]; then

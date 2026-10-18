@@ -8,7 +8,7 @@
 
 1. **环境**：`scripts/env-up.sh` 前置检查宿主 inotify（<512 instances 直接拒绝并给 sysctl 命令）；严格校验 kind/kubectl/helm 版本；修正 kagent 就绪检查的 deployment 名（`kagent-controller`）与 Chaos `controllerManager.replicaCount`；健康摘要检查 kube-system/chaos/kagent 等全部 Pod；kagent 默认关闭 `kagent-tools`（cluster-admin + 写工具）与 demo agents。
 2. **交付**：k8s-read 增加可复现 Dockerfile；镜像 tag 升 0.2.0；MCPServer 显式 `serviceAccountName`；新增只读 RBAC（pods/events/nodes/pods-log/deployments/metrics.k8s.io，无 secrets/写动词）；metrics-server 进版本表并由 env-up 安装；新增 `make mcp-images`/`make mcp-up`；集群内 `tools/list` 8 工具 + `get_pods`/`get_resource_metrics`/`scan_cluster` 实调通过。
-3. **安全**：关闭/移除 `kagent-tools` cluster-admin 暴露；新增 kagent MCP NetworkPolicy（标注 kindnet 不强制，非假装生效）；scan RBAC 去掉无用 `watch`；威胁模型登记 AS-15；`k8s-read` 日志加 512KiB 上限与读流错误处理。
+3. **安全**：关闭/移除 `kagent-tools` cluster-admin 暴露；新增 kagent MCP NetworkPolicy（本 kind 实测强制：default 阻断、kagent 放行）；scan RBAC 去掉无用 `watch`；威胁模型登记 AS-15；`k8s-read` 日志加 512KiB 上限与读流错误处理。
 4. **代码/CI**：scan 采集触顶写 `partial_reads`；事件佐证加 1h recency（SystemOOM/Unhealthy 陈旧事件不参与归因）；B 层规则只允许 Deployment（不支持 kind 加载期拒绝）；新增 `internal/sanitize` 包裹库并转义尖括号，防 I4 分隔符伪造；k8s-read `get_events since`/cursor/错误分类修正；`Makefile` 补 `mcp-servers/scan`、逐 module lint、`test-integration`；修复所有 module 的 lint 问题。
 5. **文档/流程**：正式设计文档补 I11 与 R30（规则腐烂），scan spec 引用同步；k8s-read README 与实现对齐；版本表修正 kubectl skew、metrics-server、Chaos/kagent 安全默认；本任务 PRD/context 落盘；M1 剩余 T1.3/T1.4/T1.8/T1.10 建立任务与验收口径。
 
@@ -20,7 +20,7 @@
 - [ ] `kubectl -n kagent get clusterrolebinding kagent-tools-cluster-admin-rolebinding` NotFound；kagent-tools deployment 不存在/0 副本。
 - [ ] `kubectl auth can-i list pods` / `get secrets` / `get pods/log` 对 `kagent:k8s-read` 分别为 yes/no/yes；对 `kagent:scan` 为 yes/no/no。
 - [ ] `scan_cluster` 经 MCP 调用返回 findings + `partial_reads` 结构；触顶/陈旧事件用例有单测。
-- [ ] `deploy/security/kagent-mcp-networkpolicy.yaml` 存在且在 kindnet 局限性下不被声称为强制。
+- [x] `deploy/security/kagent-mcp-networkpolicy.yaml` 存在且本 kind 实测强制（default 阻断、kagent 放行；换 CNI 用 security-smoke 复测）。
 - [ ] 正式设计文档有 I11、R30；scan spec 不再引用不存在的 R17（规则腐烂）。
 - [ ] M1 剩余 T1.3/T1.4/T1.8/T1.10 有独立任务与 PRD/验收口径；本任务不宣称 M1 验收通过。
 

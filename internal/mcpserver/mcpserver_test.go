@@ -171,8 +171,8 @@ func TestInvokeSanitizeDelimiterBreakout(t *testing.T) {
 	if strings.Contains(inner, untrustedClose) {
 		t.Fatalf("内部仍可闭合包裹：%q", s)
 	}
-	if !strings.Contains(inner, `\u003c`) {
-		t.Fatalf("内部尖括号应被转义：%q", inner)
+	if strings.ContainsAny(inner, "<>") {
+		t.Fatalf("内部尖括号应被转成全角：%q", inner)
 	}
 }
 

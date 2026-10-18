@@ -1,6 +1,7 @@
 package sanitize
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -30,26 +31,36 @@ func Wrap(data any) any {
 	case []byte:
 		body = string(v)
 	default:
-		b, err := json.Marshal(v)
-		if err != nil {
+		// SetEscapeHTML(false) 让 < / > 以字面量输出，再由 Neutralize 转成非 ASCII
+		// 的全角字符；若用 json.Marshal 默认的 \u003c 转义，下游一旦 JSON 解码就会
+		// 还原成 <，I4 分隔符仍可被伪造。
+		var buf bytes.Buffer
+		enc := json.NewEncoder(&buf)
+		enc.SetEscapeHTML(false)
+		if err := enc.Encode(v); err != nil {
 			body = fmt.Sprintf("%v", v)
 		} else {
-			body = string(b)
+			body = strings.TrimSuffix(buf.String(), "\n")
 		}
 	}
 	return Open + Neutralize(body) + Close
 }
 
-// Neutralize 把数据中的 < / > 转成 JSON 的 \u003c/\u003e 形式，确保任何输入都
-// 无法包含字面量 Open/Close。只做最小必要转义，不改动其它字符。
+// Neutralize 把数据中的 ASCII 尖括号（以及 JSON 的 \u003c/\u003e 转义）转成
+// 全角 ＜/＞，确保无论下游是否 JSON 解码，都无法得到字面量 Open/Close。
+// 只做最小必要转义，不改动其它字符。
 func Neutralize(s string) string {
 	s = strings.ToValidUTF8(s, "\uFFFD")
-	// 先处理分隔符（它们包含在尖括号规则里），再处理残余尖括号；顺序无关，但
-	// 显式保留注释，提醒后续维护者不要改成"只替换 Close"——Open 同样可被利用
-	// 来伪造嵌套包裹。
+	// 显式替换 Open/Close 本身也覆盖了；注意不要改成"只替换 Close"——Open 同样
+	// 可被利用来伪造嵌套包裹。\u003c/\u003e（及大写变体）也一并替换，防止
+	// 下游 JSON 解码把转义还原成 ASCII 尖括号。
 	r := strings.NewReplacer(
-		"<", `\u003c`,
-		">", `\u003e`,
+		"<", "＜",
+		">", "＞",
+		`\u003c`, "＜",
+		`\u003e`, "＞",
+		`\u003C`, "＜",
+		`\u003E`, "＞",
 	)
 	return r.Replace(s)
 }

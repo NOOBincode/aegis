@@ -177,12 +177,16 @@ func waitForOOMKilled(t *testing.T, cs *kubernetes.Clientset, ns, name string, t
 
 // TestIntegrationKagentDeployedScan 端到端：经 kagent 部署的 scan server（port-forward
 // svc/scan）对真实集群调 scan_cluster，命中注入的 OOMKilled。需先：
-//   kubectl port-forward -n kagent svc/scan 18081:8081
-// 且集群注入 OOMKilled pod（default/scan-e2e-oom）。SCAN_E2E_URL 覆盖地址。
+//
+//	kubectl port-forward -n kagent svc/scan 18081:8081
+//
+// 且集群注入 OOMKilled pod（default/scan-e2e-oom）。
+// 默认跳过：这是需要手工前置于环境的端到端用例，不把 make test-integration 变成
+// "必须先起好 port-forward" 的脆弱门禁；显式设置 SCAN_E2E_URL 才运行。
 func TestIntegrationKagentDeployedScan(t *testing.T) {
 	url := os.Getenv("SCAN_E2E_URL")
 	if url == "" {
-		url = "http://localhost:18081"
+		t.Skip("SCAN_E2E_URL 未设置：kagent 端到端需 port-forward + default/scan-e2e-oom，手工前置后用 SCAN_E2E_URL 运行")
 	}
 	c, err := client.NewStreamableHttpClient(url + "/mcp")
 	if err != nil {

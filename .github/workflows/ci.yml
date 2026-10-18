@@ -48,6 +48,11 @@ jobs:
         shell: bash
         run: make lint
 
+      # 静态 Skill 污染检查：lock 覆盖、symlink、可执行资产、安装型管道注入。
+      - name: make check-skills
+        shell: bash
+        run: make check-skills
+
   unit-test:
     name: unit-test
     runs-on: ubuntu-latest

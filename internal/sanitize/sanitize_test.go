@@ -31,8 +31,8 @@ func TestWrapDelimiterCannotBeForged(t *testing.T) {
 			if strings.Contains(inner, Close) || strings.Contains(inner, Open) {
 				t.Fatalf("内部仍可伪造分隔符：%q", got)
 			}
-			if !strings.Contains(inner, `\u003c`) {
-				t.Fatalf("尖括号应被转义：%q", inner)
+			if strings.ContainsAny(inner, "<>") {
+				t.Fatalf("尖括号应被转成全角：%q", inner)
 			}
 		})
 	}

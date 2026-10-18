@@ -2,10 +2,12 @@
 # 设计文档 R17：工具 server 只接受来自 kagent 命名空间内 Agent/controller 的连接，
 # 拒绝其他命名空间（含 default）的直接调用，避免任意 Pod 借工具 SA 读集群（confused deputy）。
 #
-# 重要：当前 kind 默认 CNI 是 kindnet，**不实现 NetworkPolicy**；本清单在 kind 上是声明性
-# 资产，不产生强制力。M1 的有效控制是：kagent-tools 关闭（无 cluster-admin 写工具）
-# + scan/k8s-read 的 SA 只读（见各自 RBAC）。切到 Calico/Cilium 的 kind/集群后才生效。
-# 不在文档里假装它已强制——这正是 I10 "失效姿态自明"。
+# 强制力实测（2026-10-18，本 kind kindnetd v20241108）：
+#   - default namespace 的 curl Pod → scan:8081 超时（被阻断）；
+#   - kagent namespace 的 curl Pod → scan:8081 HTTP 200（放行）；
+#   - 删除本 NetworkPolicy 后 default Pod 立即恢复 200。故本环境 NetworkPolicy 确实生效。
+# 注意：强制力仍取决于 CNI；换 Calico/Cilium/其他 CNI 后需用 scripts/security-smoke.sh 复测，
+# 不在文档里做"所有环境都强制"的过度声明。
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
