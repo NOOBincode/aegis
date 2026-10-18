@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 3
-- **Last Active**: 2026-10-10
+- **Total Sessions**: 4
+- **Last Active**: 2026-10-19
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~77 | Active |
+| `journal-1.md` | ~117 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 4 | 2026-10-19 | M1 阻塞修复：环境/交付/安全/CI | `98314f8`, `357dbe9` | `fix/m1-blockers` |
 | 3 | 2026-10-10 | T1.13 scan server kagent 集成（端到端打通 Agent→Tier-0） | `735117f` | `main` |
 | 2 | 2026-10-10 | T1.12 scan_cluster MCP 工具 —— 打通 Agent→Tier-0 入口 | `91be080` | `main` |
 | 1 | 2026-10-10 | T1.11 确定性规则层（scanner）—— 减少 AI 审核压力 | `d86d77c`, `a818ecc` | `main` |

@@ -75,3 +75,43 @@ scan server 部署进 kind 并注册 kagent MCPServer CR（SA 只读 RBAC + serv
 ### Status
 
 [OK] **Completed**
+
+
+## Session 4: M1 阻塞修复：环境/交付/安全/CI
+<!-- trellis-session: v=2 fp=7d9e98c2aa8211cf -->
+
+**Date**: 2026-10-19
+**Task**: M1 阻塞修复：环境/交付/安全/CI
+**Package**: aegis-cli
+**Branch**: `fix/m1-blockers`
+
+### Summary
+
+按 review 1-4 修复：env-up 宿主 inotify 预检/版本校验/Chaos-kagent 就绪名/健康摘要；k8s-read 0.2.0 镜像+Dockerfile+只读 RBAC+metrics-server；关闭 kagent-tools cluster-admin 暴露+NetworkPolicy+threat-model AS-15；scan 触顶盲点/事件 recency/policy kind/sanitize 转义/k8s-read 日志上限与 since；CI 补 scan 与逐 module lint。kind 内 k8s-read 8 工具、get_pods/get_resource_metrics、scan_cluster 实调通过，kagent controller/Agent/metrics-server Ready。M1 剩余 T1.3/T1.4/T1.8/T1.10 已建任务，未实现；win-proxy/LLM 通道按用户要求留后续。
+
+### Main Changes
+
+- env-up 失败必须响与安全默认
+- k8s-read 交付闭环 + 只读 RBAC
+- scan 正确性/I4 转义/CI 门禁
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `98314f8` | fix(m1): 解锁环境并交付 k8s-read/metrics-server/只读 RBAC（review 1-4） |
+| `357dbe9` | chore(trellis): 修 M1 阻塞任务与 T1.3/T1.4/T1.8/T1.10 排期 |
+
+### Testing
+
+- [OK] 12 module lint 0 issues；无 race 单测全绿；kind MCP 实调通过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 宿主抬 inotify 后跑 make up 复验 env-up 脚本
+- T1.8 DecisionRecord/replay + T1.10 OOM 场景
+- win-proxy/LLM 通道后续单独讨论
