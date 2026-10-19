@@ -40,11 +40,16 @@ apply() { # apply <file>...
 apply \
   deploy/mcp-servers/k8s-read-rbac.yaml \
   deploy/mcp-servers/scan-rbac.yaml \
+  deploy/mcp-servers/logs-rbac.yaml \
+  deploy/mcp-servers/events-rbac.yaml \
   deploy/mcp-servers/k8s-read-mcpserver.yaml \
-  deploy/mcp-servers/scan-mcpserver.yaml
+  deploy/mcp-servers/scan-mcpserver.yaml \
+  deploy/mcp-servers/prom-mcpserver.yaml \
+  deploy/mcp-servers/logs-mcpserver.yaml \
+  deploy/mcp-servers/events-mcpserver.yaml
 
 # MCPServer 由 kmcp controller 落实到 Deployment；等 rollout 才是"真的上线"。
-for d in k8s-read scan; do
+for d in k8s-read scan prom logs events; do
   info wait_ready "component=${d}" action=rollout_wait
   kubectl -n kagent rollout status "deployment/${d}" --timeout=180s >/dev/null 2>&1 \
     || die 3 wait_ready timeout "kagent/${d} 180s 未 Ready；查 kubectl -n kagent describe deploy ${d}"
@@ -63,6 +68,11 @@ can get  pods/log  k8s-read yes
 can list pods      scan     yes
 can get  secrets   scan     no
 can create pods    scan     no
+can list pods      logs     yes
+can get  pods/log  logs     yes
+can get  secrets   logs     no
+can list events    events   yes
+can get  secrets   events   no
 info rbac_assert result=ok
 
 if [ "$WITH_NETPOL" -eq 1 ]; then

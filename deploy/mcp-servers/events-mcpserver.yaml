@@ -1,0 +1,17 @@
+# events 的 kagent MCPServer 注册（T1.3：get_event_timeline）。
+apiVersion: kagent.dev/v1alpha1
+kind: MCPServer
+metadata:
+  name: events
+  namespace: kagent
+  labels: {app: events, aegis.dev/component: mcp-server}
+spec:
+  transportType: http
+  deployment:
+    image: aegis/events:0.1.0
+    imagePullPolicy: IfNotPresent
+    port: 8084
+    serviceAccountName: events
+  httpTransport:
+    path: /mcp
+    targetPort: 8084

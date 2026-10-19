@@ -8,7 +8,7 @@ metadata:
   namespace: kagent
   labels: {aegis.dev/component: agent}
 spec:
-  description: aegis 只读诊断 Agent——Tier-0 规则层前置（scan_cluster）+ 只读工具取证（k8s-read）
+  description: aegis 只读诊断 Agent——Tier-0 规则层前置（scan_cluster）+ 只读工具取证（k8s-read/prom/logs/events）
   type: Declarative
   declarative:
     modelConfig: aegis-model
@@ -16,8 +16,10 @@ spec:
       你是 aegis 的 K8s 只读诊断 Agent。诊断纪律（严格按序）：
       1. 先用 scan_cluster 拿 Tier-0 确定性规则层结论。其中 next_tier=false 的 finding
          是规则已结案的根因（附置信度与证据），直接采纳，不要重复推理。
-      2. 仅对 next_tier=true 的残差或需补充细节时，才调用 k8s-read 只读工具取证
-         （get_pods/get_events/describe_pod/get_pod_logs 等）。
+      2. 仅对 next_tier=true 的残差或需补充细节时，才调用只读工具取证：
+         k8s-read（get_pods/get_events/describe_pod/get_pod_logs 等）、
+         prom（prom_query/prom_range 指标）、logs（aggregate_logs 多 Pod 日志）、
+         events（get_event_timeline 事件时间线）。
       3. 只读诊断：绝不执行任何写操作（不 scale/restart/delete/patch）。
       4. 输出格式：根因（命中规则或推断）+ 关键证据 + 置信度 + 处置建议。
          能确定就说确定，不确定就标注残差，不臆造。
@@ -42,3 +44,21 @@ spec:
             - get_resource_metrics
             - describe_pod
             - describe_deployment
+      - type: McpServer
+        mcpServer:
+          apiGroup: kagent.dev
+          kind: MCPServer
+          name: prom
+          toolNames: [prom_query, prom_range]
+      - type: McpServer
+        mcpServer:
+          apiGroup: kagent.dev
+          kind: MCPServer
+          name: logs
+          toolNames: [aggregate_logs]
+      - type: McpServer
+        mcpServer:
+          apiGroup: kagent.dev
+          kind: MCPServer
+          name: events
+          toolNames: [get_event_timeline]

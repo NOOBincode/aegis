@@ -41,3 +41,5 @@
 | v0.1 初稿（全部 TBD） | 2026-09-23 | — | 落地方案 §11 立即行动第 1 条：W1 安装核验后逐行钉死 |
 | v0.2 首轮钉死 | 2026-10-05 | — | T0.2 落地：工具链（kind/kubectl/helm/Go/golangci-lint）+ Chaos Mesh chart 2.7.2 已核验；Prometheus/ArgoCD chart 版本初钉但仓库当前网络不可达、待 `make up` 实机核验；新增机器可读 `deploy/versions.env` |
 | v0.3 M1 阻塞修复 | 2026-10-18 | fix/m1-blockers | kubectl 降到 v1.31.0 对齐 apiserver（原 1.37.1 超出 ±1 skew）；新增 metrics-server 7.4.12（bitnami chart tgz + SHA256 + 官方 metrics-server v0.7.1 镜像）；kagent 默认关闭 kagent-tools/cluster-admin 与 10 个 demo agent；Chaos replica key 修正为 `controllerManager.replicaCount` |
+
+- 自研 MCP 镜像：`aegis/k8s-read:0.2.0`、`aegis/scan:0.1.0`、`aegis/prom:0.1.0`（T1.3）；tag 变更需同步 build-mcp-images.sh 与 MCPServer manifest。

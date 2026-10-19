@@ -1,0 +1,20 @@
+# prom 的 kagent MCPServer 注册（T1.3：prom_query / prom_range）。
+# 无 K8s API 权限：只经 HTTP 访问 Prometheus 只读 API；NetworkPolicy 只放行 kagent 入站。
+# 镜像由 scripts/build-mcp-images.sh 静态编译 + kind load 注入。
+apiVersion: kagent.dev/v1alpha1
+kind: MCPServer
+metadata:
+  name: prom
+  namespace: kagent
+  labels: {app: prom, aegis.dev/component: mcp-server}
+spec:
+  transportType: http
+  deployment:
+    image: aegis/prom:0.1.0
+    imagePullPolicy: IfNotPresent
+    port: 8082
+    env:
+      AEGIS_PROM_URL: http://prometheus-kube-prometheus-prometheus.observability.svc:9090
+  httpTransport:
+    path: /mcp
+    targetPort: 8082

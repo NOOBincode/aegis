@@ -94,8 +94,14 @@ mcp_tools() { # mcp_tools <localport> <outfile>
 
 start_pf k8s-read 18080 8080
 start_pf scan 18081 8081
+start_pf prom 18083 8082
+start_pf logs 18084 8083
+start_pf events 18085 8084
 mcp_tools 18080 "$TMP/k8s-read.tools"
 mcp_tools 18081 "$TMP/scan.tools"
+mcp_tools 18083 "$TMP/prom.tools"
+mcp_tools 18084 "$TMP/logs.tools"
+mcp_tools 18085 "$TMP/events.tools"
 
 # 工具名按 read 白名单核对；出现写/执行词立即失败。
 k8s_read_expected="describe_deployment describe_pod get_deployments get_events get_nodes get_pod_logs get_pods get_resource_metrics"
@@ -119,11 +125,27 @@ else
   bad "tools" "server=scan" "got=${scan_got:-none}" "want=${scan_expected}"
 fi
 
+check_tools() { # check_tools <server> <file> <expected...>
+  local server="$1" file="$2"; shift 2
+  local want got
+  want="$(printf '%s\n' "$@" | sort -u | tr '\n' ' ' | sed 's/ $//')"
+  got="$(grep -o '"name":"[^"]*"' "$file" | cut -d'"' -f4 | sort -u | tr '\n' ' ' | sed 's/ $//')"
+  if [ "$got" = "$want" ]; then ok "tools" "server=$server" "count=$(echo "$want" | wc -w)"; else
+    bad "tools" "server=$server" "got=${got:-none}" "want=${want}"
+  fi
+  if grep -Eq '"name":"(scale_|restart_|delete_|patch_|create_|apply_|exec_|shell)' "$file"; then
+    bad "tools" "server=$server" "reason=write_tool_present"
+  fi
+}
+check_tools prom "$TMP/prom.tools" prom_query prom_range
+check_tools logs "$TMP/logs.tools" aggregate_logs
+check_tools events "$TMP/events.tools" get_event_timeline
+
 # Agent 白名单只允许 scan_cluster + 只读 k8s-read 工具。
 agent_tools="$(kubectl -n kagent get agent aegis-diagnoser -o jsonpath='{range .spec.declarative.tools[*]}{.mcpServer.toolNames[*]}{"\n"}{end}' 2>/dev/null | tr '\n' ' ')"
 for name in $agent_tools; do
   case "$name" in
-    scan_cluster|get_pods|get_deployments|get_nodes|get_events|get_pod_logs|get_resource_metrics|describe_pod|describe_deployment) : ;;
+    scan_cluster|get_pods|get_deployments|get_nodes|get_events|get_pod_logs|get_resource_metrics|describe_pod|describe_deployment|prom_query|prom_range|aggregate_logs|get_event_timeline) : ;;
     *) bad "agent_tools" "reason=unexpected_tool" "tool=${name}" ;;
   esac
 done

@@ -28,5 +28,5 @@ AEGIS_LLM_API_KEY='...' bash scripts/ai-up.sh --with-agent --restart
 
 - 外部 AI 意味着数据出域；使用前读 `docs/data-egress.md`，敏感环境请把
   `AEGIS_LLM_BASE_URL` 指向私域端点并封禁公网 AI 出口。
-- Agent 的工具白名单只有 `scan_cluster` + 8 个只读 k8s-read 工具；不得加入写工具。
+- Agent 的工具白名单：`scan_cluster` + 8 个只读 k8s-read 工具 + `prom_query`/`prom_range` + `aggregate_logs` + `get_event_timeline`（共 13 个）；不得加入写工具。
 - 轮换/删除：删除 `kagent/aegis-llm` 后 Agent 不可用；恢复用同一命令。

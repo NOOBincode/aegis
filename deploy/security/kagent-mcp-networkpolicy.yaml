@@ -1,4 +1,4 @@
-# kagent 内自研 MCP server（scan / k8s-read）的入站白名单。
+# kagent 内自研 MCP server（scan/k8s-read/prom/logs/events）的入站白名单。
 # 设计文档 R17：工具 server 只接受来自 kagent 命名空间内 Agent/controller 的连接，
 # 拒绝其他命名空间（含 default）的直接调用，避免任意 Pod 借工具 SA 读集群（confused deputy）。
 #
@@ -19,7 +19,7 @@ spec:
     matchExpressions:
       - key: app.kubernetes.io/name
         operator: In
-        values: ["scan", "k8s-read"]
+        values: ["scan", "k8s-read", "prom", "logs", "events"]
   policyTypes: ["Ingress"]
   ingress:
     - from:

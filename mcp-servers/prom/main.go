@@ -1,12 +1,54 @@
-// Package main 是 aegis MCP 工具进程：prom。
+// Package main 是 aegis MCP 工具进程：prom（Prometheus 窄查询，T1.3）。
 //
-// Phase 0 占位：进程生命周期由 MCP server 共享框架承载（internal/mcpserver，M1 T1.1 接入）。
-// 职责边界：工具层只做参数校验 + 执行 + 结果结构化返回，放行判断永不下沉到本层。
-//
-// 设计出处：mcp-servers/prom/README.md；设计文档 §4.1。
+// 职责边界：只读 instant/range 两个端点；不做 PromQL 语义改写、不做告警/写操作。
+// 出口经 internal/mcpserver 的 sanitize/审计/预算/超时中间件。
 package main
 
+import (
+	"log/slog"
+	"os"
+	"time"
+
+	"github.com/aegis-dev/aegis/internal/adapters/prom"
+	"github.com/aegis-dev/aegis/internal/breaker"
+	"github.com/aegis-dev/aegis/internal/mcpserver"
+	"github.com/aegis-dev/aegis/internal/session"
+)
+
+const (
+	serverName    = "prom"
+	serverVersion = "0.1.0"
+	listenAddr    = ":8082"
+)
+
 func main() {
-	// M1（T1.1）：internal/mcpserver 注册 + 工具元数据强校验（risk_hint/idempotent/reversible/est_blast_radius/timeout_ms 缺一注册失败）
-	// 随后按里程碑填充工具集：Prometheus 指标查询窄接口（query/range，M1 T1.3 填充）
+	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	slog.SetDefault(logger)
+
+	base := os.Getenv("AEGIS_PROM_URL")
+	if base == "" {
+		base = "http://prometheus-kube-prometheus-prometheus.observability.svc:9090"
+	}
+	q, err := prom.New(base, 10*time.Second, maxSeries)
+	if err != nil {
+		logger.Error("构造 Prometheus 客户端失败", "error", err)
+		os.Exit(1)
+	}
+
+	limits := session.LimitsFromEnv()
+	reg := mcpserver.NewRegistry()
+	budget := session.NewManager(limits)
+	if limits.QPS > 0 {
+		budget.WithQPS(breaker.NewQPSWindow(limits.QPS, limits.QPSWindow))
+	}
+	reg.SetBudget(budget)
+	reg.MustRegister(promQueryTool(q))
+	reg.MustRegister(promRangeTool(q))
+
+	logger.Info("prom 启动", "tools", reg.Len(), "addr", listenAddr, "base", base)
+	srv := mcpserver.NewServer(serverName, serverVersion, reg)
+	if err := srv.ServeHTTP(listenAddr); err != nil {
+		logger.Error("serve 失败", "error", err)
+		os.Exit(1)
+	}
 }

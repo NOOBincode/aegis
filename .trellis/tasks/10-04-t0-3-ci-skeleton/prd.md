@@ -13,11 +13,11 @@ GitHub Actions 门禁骨架，空架子 PR 触发全绿。CI 是门禁而非形�
 ## Acceptance Criteria
 
 - [x] `ci.yml` 三 job（lint / unit-test / build）落盘、串行、空架子全绿（YAML 校验通过，本地 make lint/build 绿）
-- [ ] `kind-smoke.yml` 落盘（**依赖 T0.2**：共用 scripts/ 安装脚本，禁止第二条安装路径）
+- [x] `kind-smoke.yml` 落盘（**依赖 T0.2**：共用 scripts/ 安装脚本，禁止第二条安装路径）
 
 ## Status / Evidence
 
-**部分完成。** `ci.yml` 已落盘（本会话）。`kind-smoke.yml` 待 T0.2 的 `scripts/env-up.sh` 就位后补齐——这是 aegis-ci 的硬约束（kind 安装不写第二份）。
+**已完成落盘（2026-10-19）。** `ci.yml`、`kind-smoke.yml` 均在仓库；kind-smoke 复用 `scripts/install-tools.sh` + `env-up.sh --cluster-only`，未写第二份安装路径。远端 Actions 实跑结果需在推送分支后查看（本地无法代替 GitHub runner）。
 
 ## Notes
 
