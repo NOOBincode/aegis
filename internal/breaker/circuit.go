@@ -16,6 +16,7 @@ type CircuitConfig struct {
 // CircuitState 是熔断器状态。
 type CircuitState string
 
+// CircuitClosed 是正常放行态；Open 拒绝，HalfOpen 只放一个探针。
 const (
 	CircuitClosed   CircuitState = "Closed"
 	CircuitOpen     CircuitState = "Open"
