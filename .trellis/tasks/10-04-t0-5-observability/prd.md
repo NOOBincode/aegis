@@ -19,7 +19,7 @@
 
 ## Blocker
 
-**docker 不可用**。compose 文件可先落盘，"trace 可见"验证需 docker。
+**docker 守护进程可用，但 `docker compose` 插件缺失**（`docker: unknown command: docker compose`），且 Langfuse/ClickHouse/MinIO 镜像未拉取；compose 文件与版本已落盘，"trace 可见"仍需安装 compose 插件后实跑。
 
 ## Notes
 

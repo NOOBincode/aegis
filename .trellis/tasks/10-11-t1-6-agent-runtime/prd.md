@@ -10,7 +10,10 @@
 
 ## Acceptance Criteria
 
-- [ ] TBD
+- [x] Agent CR（systemMessage + 13 只读工具白名单）可被 kagent 调度。
+- [x] 外接 OpenAI 兼容 LLM 通道（临时 DeepSeek ModelConfig；key 只经 Secret）实机自主诊断 OOMKilled。
+- [x] 原 win-proxy 旧端点未恢复；双通道契约（OpenAI 兼容 baseUrl）由 `scripts/ai-up.sh` 保持。
+- [ ] 私域/本地 LLM 实机未验（需 vLLM/Ollama 端点）。
 
 ## Notes
 
