@@ -25,7 +25,8 @@
     "10-20-t2-5-inverse-operation",
     "10-20-t2-7-injection-detector",
     "10-20-t2-8-gatekeeper-decision",
-    "10-20-t2-6-circuit-breaker"
+    "10-20-t2-6-circuit-breaker",
+    "10-20-t2-9-authority-attributor"
   ],
   "parent": null,
   "relatedFiles": [],
