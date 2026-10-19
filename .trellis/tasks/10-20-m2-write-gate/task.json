@@ -3,7 +3,7 @@
   "name": "m2-write-gate",
   "title": "M2 安全写闸门（CRD/风险/审批/回滚/闸门）",
   "description": "M2 交付：ChangeRequest/GuardrailPolicy 契约、确定性风险分级、策略/审批、逆操作/回滚、熔断/配额、gatekeeper MCP 代理、authority 归因、GitOps 通道与 mTLS 信封；M2 红队检查点全量通过后才进入 M3。",
-  "status": "planning",
+  "status": "active",
   "dev_type": null,
   "scope": null,
   "package": "aegis-cli",

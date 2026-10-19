@@ -3,7 +3,7 @@
   "name": "t2-1-crds-state-machine",
   "title": "T2.1 ChangeRequest/GuardrailPolicy CRD + 状态机",
   "description": "T2.1：api/v1alpha1 ChangeRequest/GuardrailPolicy 类型 + crds/ manifest；ChangeRequest 状态机（Pending/DryRunning/AwaitingApproval/Executing/Verifying/Committed/RolledBack/Aborted/Rejected）；finalizer/幂等键；controller reconcile 薄层；envtest/单测。验收：CRD apply、状态迁移表、重复提交幂等、在途重启恢复。",
-  "status": "planning",
+  "status": "active",
   "dev_type": null,
   "scope": null,
   "package": "aegis-cli",

@@ -1,0 +1,68 @@
+# GuardrailPolicy CRD（设计文档 §5.2，M2 T2.1）。
+# 运行态防篡改（R23）：GitOps 来源校验在 gatekeeper 启动/同步时执行；R3 hardDeny 代码级强制。
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: guardrailpolicies.aegis.dev
+  labels: {aegis.dev/component: crd}
+spec:
+  group: aegis.dev
+  names:
+    kind: GuardrailPolicy
+    listKind: GuardrailPolicyList
+    plural: guardrailpolicies
+    singular: guardrailpolicy
+    shortNames: [gp]
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - {name: OPA-Bundle, type: string, jsonPath: .spec.opaPolicyBundle}
+        - {name: Age, type: date, jsonPath: .metadata.creationTimestamp}
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            apiVersion: {type: string}
+            kind: {type: string}
+            metadata: {type: object}
+            spec:
+              type: object
+              properties:
+                clusterSelector:
+                  type: object
+                  additionalProperties: {type: string}
+                hardDeny:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      verbs: {type: array, items: {type: string}}
+                      resources: {type: array, items: {type: string}}
+                      namespaces: {type: array, items: {type: string}}
+                      note: {type: string}
+                blastRadiusQuota:
+                  type: object
+                  properties:
+                    maxPodsPerChange: {type: integer, minimum: 0}
+                    maxNodesPerChange: {type: integer, minimum: 0}
+                    maxNamespacesPerChange: {type: integer, minimum: 0}
+                rateLimit:
+                  type: object
+                  properties:
+                    maxChangesPerHour: {type: integer, minimum: 0}
+                    maxReadQPS: {type: integer, minimum: 0}
+                sessionBudget:
+                  type: object
+                  properties:
+                    maxToolCalls: {type: integer, minimum: 0}
+                    maxLLMTokens: {type: integer, minimum: 0}
+                circuitBreaker:
+                  type: object
+                  properties:
+                    failureRateThreshold: {type: number, minimum: 0, maximum: 1}
+                    window: {type: string}
+                    action: {type: string}
+                opaPolicyBundle: {type: string}
