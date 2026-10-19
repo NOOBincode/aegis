@@ -23,7 +23,8 @@
     "10-20-t2-2-risk-classifier",
     "10-20-t2-3-policy-approval",
     "10-20-t2-5-inverse-operation",
-    "10-20-t2-7-injection-detector"
+    "10-20-t2-7-injection-detector",
+    "10-20-t2-8-gatekeeper-decision"
   ],
   "parent": null,
   "relatedFiles": [],
