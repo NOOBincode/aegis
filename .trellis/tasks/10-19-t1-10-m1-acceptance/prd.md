@@ -13,10 +13,10 @@ eval 场景库第 1 号：OOMKilled 故障 manifest + 期望根因标注（格�
 
 ## Acceptance Criteria
 
-- [ ] 场景 manifest 可 apply/cleanup，重复运行幂等。
-- [ ] `scan_cluster` 命中 `OOM_KILLED` 且带 Pod 名；`partial_reads` 为空或显式说明。
-- [ ] LLM 就绪后 Agent 输出根因命中标注；`aegis-cli replay` 可回放同一会话。
-- [ ] 演示脚本在 kind 上从头跑通并留执行记录。
+- [x] 场景 manifest 可 apply/cleanup，重复运行幂等（`scripts/m1-demo.sh` 默认清理 ns）。
+- [x] `scan_cluster` 命中 `OOM_KILLED` 且带 Pod 名；`partial_reads` 为空或显式说明。
+- [x] LLM 就绪后 Agent 输出根因命中标注；`aegis-cli replay` 可回放同一会话（2026-10-19 实机，7 tool calls + outcome）。
+- [x] 演示脚本在 kind 上从头跑通并留执行记录（`scripts/m1-demo.sh` full 模式 rc=0；artifacts 见 `.cache/m1-demo/`）。
 
 ## Notes
 
@@ -31,3 +31,4 @@ eval 场景库第 1 号：OOMKilled 故障 manifest + 期望根因标注（格�
 ## Evidence
 
 - 2026-10-18：Agent 端到端（DeepSeek 临时通道）OOM 诊断通过；日志注入/凭据提取/提权/数据外传测试均拒绝。详见 `evidence.md`（不含 API key；临时 Secret 已删除）。
+- 2026-10-19：`scripts/m1-demo.sh` full 模式通过——scan 命中 OOM_KILLED；Agent 输出 OOM 根因 + 日志明文凭据风险；MCP audit 7 calls；`aegis-cli replay` 输出 `cluster_snapshot_ref` + 工具序列 + outcome；DecisionRecord apply 成功。真实测试 key 仅经临时 Secret，测试后 `ai-down` 删除；仓库/审计日志/远端无 key。

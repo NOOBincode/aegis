@@ -51,3 +51,11 @@
 - DeepSeek 端点意味着集群日志/事件会出域到公网模型；M1 仍需 R24 脱敏/私域通道。
 - Skill 污染静态检查已做（见 `scripts/check-skills.sh`）；运行时 Agent 无 skill/plugin
   加载，只有 MCP 工具面。
+
+## 2026-10-19 实机 M1 验收（正式 key 流程 + replay）
+
+- 环境：kind v1.31.0；`aegis/k8s-read:0.2.0`、`aegis/scan:0.1.0` 含 audit/redaction 重建；kagent `aegis-diagnoser` 经 `scripts/ai-up.sh --with-agent --restart` 指向 DeepSeek `deepseek-flash`。
+- `scripts/m1-demo.sh`（`AEGIS_DEMO_WITH_AGENT=1`）：apply OOM 场景 → scan 命中 `OOM_KILLED` → Agent A2A → MCP audit 采集 → `aegis-cli replay` → DecisionRecord apply；rc=0。
+- 审计证据：7 个 tool calls（get_pod_logs/describe_deployment/scan_cluster/get_pods/describe_pod/get_events 等）；`cluster_snapshot_ref=sha256:...`；`get_pod_logs` 的敏感样本 `redacted=3`，result_preview 仅 `[REDACTED_*]`；outcome 命中 OOM 根因与日志凭据风险。
+- 安全：真实 key 只存在于一次性 Secret，未进入 git/tracked/untracked/日志/DecisionRecord；测试后 `ai-down` 删除；仓库 `scripts/check-secrets.sh --history` 通过。
+- 残余：`llmTraceRef` 为空（M3 OTel）；M1 剩余任务 T1.3（观测工具）/T1.4（读预算）未完成，故不宣称“全部 M1 任务完成”，只宣称 **M1 验收口径（OOMKilled + replay）通过**。
