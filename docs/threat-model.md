@@ -51,6 +51,7 @@
 | AS-09 | 回滚欺骗 | 回滚时目标已被第三方修改（状态漂移） | 回滚前不复验漂移即执行 |
 | AS-10 | 供应链 | 恶意依赖 / 镜像 / 用户脚本 | 依赖准入与镜像钉死失效 |
 | AS-15 | 工具 server 直连暴露 | kagent 命名空间内 MCPServer / 内置工具 server 可被任意 Pod 调用；kagent-tools 的 SA 是 `*/*/*` 且暴露 `shell`/`k8s_delete` 等写工具 | 无认证、无 NetworkPolicy、工具 SA 过宽（M1 无 L2 代理） |
+| AS-16 | 外部 AI 数据出域/留存 | 诊断 Agent 把集群日志/事件/对象摘要发给公网 OpenAI 兼容端点 | 使用外部 AI；提供商日志/留存/训练不可控；正则脱敏不完备 |
 
 ## 5. 现有缓解映射表（攻击面 → 不变量 → 组件 → 失败模式）
 
@@ -66,6 +67,7 @@
 | AS-08 | I10 | 闸门无状态化 + leader election 单写者 + CR 状态机在途恢复 + fail-closed 写路径 + Executing 超时巡检 | F14 | 闸门不可用 ≠ 集群可用性受损；绝不"挂了先放行" |
 | AS-09 | I5 | rollbacker：逆操作强制 dry-run 验证 + 回滚前漂移复验 + `rollback.deadline` 超时转人工 | F6 | 逆操作无法生成即自动升 R2 |
 | AS-10 | I3 | 依赖纪律（理由 + license 陈述）、版本钉死（`deploy/versions.md`）、写工具逐人过红队 | F9 | 闸门代码 AI 产出 100% 逐行人审（R-2） |
+| AS-16 | I4、I6、R24 | `internal/redact` + `internal/sanitize`：工具出口先脱敏（sk-/Bearer/JWT/私钥/连接串/key=value）再 I4 包裹；`aegis-cli scan` 报告同口径；MCP 审计只落元数据/哈希；`docs/data-egress.md` 记录数据分级、外部出域残差与私域切换；`scripts/ai-up.sh` 只经 Secret 管理 key，`make check-secrets` 检查树/历史 | F2、F4 | M1 残余：正则模式不可能完备；公网提供商侧留存不可控；真敏感环境必须私域端点 + egress 封禁，不能靠“脱敏=零出域”叙事 |
 | AS-15 | I3、I10、R17 | `scripts/env-up.sh` 默认关闭 kagent-tools（其 ClusterRole 为 `*/*/*`）与 demo agents；自研 MCP server 只授只读 SA（`deploy/mcp-servers/*-rbac.yaml`）；`deploy/security/kagent-mcp-networkpolicy.yaml` 入站白名单。本 kind（kindnet v20241108）实测强制：default→scan 阻断、kagent→scan 放行；换 CNI 需用 `scripts/security-smoke.sh` 复测。M1 的有效控制是关闭 cluster-admin 工具 + SA 只读 + 入站白名单，M2 再以 mTLS/gatekeeper 代理强制 | F9 | M1 残余风险：同命名空间 Pod 仍可直连只读 server（读面），已用 SA 最小权限封顶；跨命名空间已由 NetworkPolicy 阻断（本环境实测） |
 
 ## 6. 红队评审记录（首轮：设计文档 §10 定稿前自审）

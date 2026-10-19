@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -90,19 +91,30 @@ func (s *Server) ServeStdio(ctx context.Context) error {
 }
 
 // ServeHTTP 经 Streamable HTTP 提供 MCP 服务（集群内常驻进程形态，kagent 经 Service 发现）。
+// 显式用 http.Server 包一层：设置读头超时，并把 Mcp-Session-Id 注入 ctx 供审计关联。
 func (s *Server) ServeHTTP(addr string) error {
-	mcpSrv, err := s.build()
+	h, err := s.HTTPHandler()
 	if err != nil {
 		return err
 	}
-	return server.NewStreamableHTTPServer(mcpSrv).Start(addr)
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           h,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	return srv.ListenAndServe()
 }
 
 // HTTPHandler 返回可挂进任意 http.Server / httptest 的 handler（StreamableHTTP 传输），供测试与嵌入装配。
+// withHTTPContext 将 Mcp-Session-Id 写入 ctx，审计中间件据此串起同会话工具调用。
 func (s *Server) HTTPHandler() (http.Handler, error) {
 	mcpSrv, err := s.build()
 	if err != nil {
 		return nil, err
 	}
-	return server.NewStreamableHTTPServer(mcpSrv), nil
+	return server.NewStreamableHTTPServer(mcpSrv,
+		server.WithHTTPContextFunc(func(ctx context.Context, r *http.Request) context.Context {
+			return WithSessionID(ctx, r.Header.Get("Mcp-Session-Id"))
+		}),
+	), nil
 }

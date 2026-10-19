@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -176,6 +177,41 @@ func TestInvokeSanitizeDelimiterBreakout(t *testing.T) {
 	}
 }
 
+// R24：出口数据中的 key/token 必须在包裹前脱敏，且 Meta.Redacted 计数。
+func TestInvokeRedactsSecrets(t *testing.T) {
+	r := NewRegistry()
+	tool := validTool("leaky")
+	tool.Handler = func(_ context.Context, _ map[string]any) *Result {
+		const testKey = "sk-" + "testonly1234567890abcdef"
+		return &Result{Data: map[string]any{"log": "Authorization: Bearer " + testKey + " password=hunter2hunter2"}}
+	}
+	if err := r.Register(tool); err != nil {
+		t.Fatal(err)
+	}
+	res := r.Invoke(context.Background(), "leaky", nil)
+	if res.Meta.Redacted == 0 {
+		t.Fatal("应记录 redacted_secrets 计数")
+	}
+	s, _ := res.Data.(string)
+	if strings.Contains(s, "sk-1884278a") || strings.Contains(s, "hunter2") {
+		t.Fatalf("敏感值进入出口数据：%q", s)
+	}
+	if !strings.Contains(s, "[REDACTED]") {
+		t.Fatalf("应包含脱敏标记：%q", s)
+	}
+}
+
+// SessionID 上下文注入（审计关联）。
+func TestSessionIDContext(t *testing.T) {
+	ctx := WithSessionID(context.Background(), "sess-1")
+	if got := SessionID(ctx); got != "sess-1" {
+		t.Fatalf("SessionID=%q", got)
+	}
+	if got := SessionID(context.Background()); got != "" {
+		t.Fatalf("空 ctx 应为空，got %q", got)
+	}
+}
+
 // 错误结果（Data=nil）不产出空包裹，也不误标 wrapped=true。
 func TestInvokeErrorNotWrapped(t *testing.T) {
 	r := NewRegistry()
@@ -203,5 +239,33 @@ func TestInvokePanicRecovered(t *testing.T) {
 	res := r.Invoke(context.Background(), "panicker", nil)
 	if res.Err == nil || res.Err.Class != ErrClassInternal {
 		t.Fatalf("panic 应转为 internal 工具错误，got %+v", res.Err)
+	}
+}
+
+// 审计行必须包含可回放元数据，且不得把原始敏感值写进日志。
+func TestAuditLogHasReplayMetadata(t *testing.T) {
+	var buf strings.Builder
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	t.Cleanup(func() { slog.SetDefault(old) })
+
+	r := NewRegistry()
+	tool := validTool("leaky")
+	tool.Handler = func(_ context.Context, _ map[string]any) *Result {
+		const k = "sk-" + "testonly1234567890abcdef"
+		return &Result{Data: map[string]any{"log": "Authorization: Bearer " + k}}
+	}
+	if err := r.Register(tool); err != nil {
+		t.Fatal(err)
+	}
+	_ = r.Invoke(WithSessionID(context.Background(), "sess-42"), "leaky", map[string]any{"ns": "default"})
+	logLine := buf.String()
+	for _, want := range []string{`"audit":"mcp.tool"`, `"session_id":"sess-42"`, `"result_sha256"`, `"result_preview"`, `"redacted_count":2`} {
+		if !strings.Contains(logLine, want) {
+			t.Fatalf("审计日志缺 %s：%s", want, logLine)
+		}
+	}
+	if strings.Contains(logLine, "sk-testonly") {
+		t.Fatalf("审计日志泄漏 key：%s", logLine)
 	}
 }

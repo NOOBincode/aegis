@@ -12,6 +12,7 @@ import (
 
 	k8sadapter "github.com/aegis-dev/aegis/internal/adapters/k8s"
 	"github.com/aegis-dev/aegis/internal/policyload"
+	"github.com/aegis-dev/aegis/internal/redact"
 	"github.com/aegis-dev/aegis/internal/scan"
 )
 
@@ -63,6 +64,9 @@ func runScan(cmd *cobra.Command, kubeconfig, namespace, policiesDir, format, out
 	if err != nil {
 		return err
 	}
+	// CLI 报告可能被贴到 issue/工单/外部 AI；与 MCP 出口同一脱敏口径（R24），
+	// 避免事件 message/证据里的 token/连接串绕过框架中间件直接落盘。
+	redactScanResult(&res)
 
 	w, closeFn, err := scanOutput(cmd, output)
 	if err != nil {
@@ -101,4 +105,19 @@ func defaultKubeconfig() string {
 		return filepath.Join(home, ".kube", "config")
 	}
 	return ""
+}
+
+// redactScanResult 对报告中的不可信自由文本做敏感信息脱敏（保留计数到 stdout 日志）。
+func redactScanResult(res *scan.Result) {
+	for i := range res.Findings {
+		f := &res.Findings[i]
+		f.RootCause, _ = redact.String(f.RootCause)
+		f.Suggestion, _ = redact.String(f.Suggestion)
+		for j := range f.Evidence {
+			f.Evidence[j], _ = redact.String(f.Evidence[j])
+		}
+	}
+	for i := range res.PartialReads {
+		res.PartialReads[i], _ = redact.String(res.PartialReads[i])
+	}
 }

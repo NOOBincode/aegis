@@ -53,6 +53,11 @@ jobs:
         shell: bash
         run: make check-skills
 
+      # 密钥泄漏检查：key 绝不能进仓库（当前树；历史由人工/定期跑 --history）。
+      - name: make check-secrets
+        shell: bash
+        run: make check-secrets
+
   unit-test:
     name: unit-test
     runs-on: ubuntu-latest

@@ -14,7 +14,7 @@ GO_MODULES := . \
 	mcp-servers/runbook \
 	mcp-servers/scan
 
-.PHONY: help lint test test-integration build mcp-images mcp-up security-smoke check-skills up down clean
+.PHONY: help lint test test-integration build mcp-images mcp-up security-smoke check-skills check-secrets ai-up ai-down m1-demo up down clean
 
 help: ## 目标一览
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -47,6 +47,18 @@ security-smoke: ## 安全冒烟：RBAC/kagent-tools/NetworkPolicy/MCP 工具面�
 
 check-skills: ## 开发期 Skill 污染检查（lock 覆盖/symlink/可执行资产/安装型管道）
 	bash scripts/check-skills.sh
+
+check-secrets: ## 密钥泄漏检查（当前树；--history 另跑）
+	bash scripts/check-secrets.sh
+
+ai-up: ## 安全配置/轮换 LLM key（Secret）+ ModelConfig（key 不落 git/日志）
+	bash scripts/ai-up.sh --with-agent
+
+ai-down: ## 删除 LLM key（止损/轮换前）
+	bash scripts/ai-down.sh
+
+m1-demo: ## M1 验收：OOM + scan + Agent + 审计 replay（需 kind；Agent 可选）
+	bash scripts/m1-demo.sh
 
 up: ## 一键起环境：kind + 组件 + runsc 冒烟 + 健康摘要（T0.2 接通后生效）
 	bash scripts/env-up.sh

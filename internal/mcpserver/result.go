@@ -23,6 +23,8 @@ type Meta struct {
 	Truncated bool `json:"truncated"`
 	// Wrapped 是否已做 <untrusted_cluster_data> 包裹（I4）。
 	Wrapped bool `json:"wrapped"`
+	// Redacted 本次出口数据中命中的敏感模式数（R24；只计数，不留原值）。
+	Redacted int `json:"redacted_secrets,omitempty"`
 	// NextCursor 分页游标；空表示无更多。
 	NextCursor string `json:"next_cursor,omitempty"`
 	// RemainingBudget 会话剩余预算提示（F4），供 Agent 自决收敛。

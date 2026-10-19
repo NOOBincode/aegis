@@ -6,6 +6,12 @@
 
 CRD 是闸门语义的 K8s 载体：ChangeRequest 状态机落盘使 gatekeeper 进程无状态（I10，设计文档 §4.2.5），DecisionRecord 落盘使决策可回放（I6）。本目录的初衷是把"契约"从代码中显式化：人类评审 YAML 契约，机器消费契约，契约永远先于消费者。第一版即全量字段——abort/timeout/rollback.deadline/idempotencyKey 不留"以后再加"（§5 首行，红队记录 R6 整改）。
 
+## 1.1 M1 手写过渡（T1.8）
+
+当前 `aegis.dev_decisionrecords.yaml` 是 M1 的**手写过渡清单**：仓库尚未引入 controller-gen
+生成链，先保证 CRD 可 apply、可回放。M2 T2.1 必须补 `api/v1alpha1` markers + controller-gen
+生成 + CI generate-diff 门禁，届时删除本过渡说明。
+
 ## 2. 职责与任务清单
 
 | # | 职责 | 交付物 | 对应任务 |

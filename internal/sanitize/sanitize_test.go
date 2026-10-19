@@ -38,6 +38,22 @@ func TestWrapDelimiterCannotBeForged(t *testing.T) {
 	}
 }
 
+func TestWrapRedactsSecrets(t *testing.T) {
+	const testKey = "sk-" + "testonly1234567890abcdef"
+	in := map[string]any{"message": "Authorization: Bearer " + testKey + " password=hunter2hunter2"}
+	got, n := WrapWithStats(in)
+	if n == 0 {
+		t.Fatal("应命中脱敏")
+	}
+	text, _ := got.(string)
+	if strings.Contains(text, "sk-1884278a") || strings.Contains(text, "hunter2") {
+		t.Fatalf("敏感值进入包裹：%q", text)
+	}
+	if !strings.Contains(text, "[REDACTED]") {
+		t.Fatalf("应有脱敏标记：%q", text)
+	}
+}
+
 func TestWrapNil(t *testing.T) {
 	if got := Wrap(nil); got != nil {
 		t.Fatalf("nil 不应包裹，got %#v", got)

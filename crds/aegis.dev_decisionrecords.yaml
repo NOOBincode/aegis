@@ -1,0 +1,74 @@
+# DecisionRecord CRD（设计文档 §5.3，M1 T1.8）。
+# 不可变/sealed/WORM 导出属 M2 加固；M1 只先落契约与回放。
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: decisionrecords.aegis.dev
+  labels: {aegis.dev/component: crd}
+spec:
+  group: aegis.dev
+  names:
+    kind: DecisionRecord
+    listKind: DecisionRecordList
+    plural: decisionrecords
+    singular: decisionrecord
+    shortNames: [dr]
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - name: Session
+          type: string
+          jsonPath: .spec.sessionRef
+        - name: Outcome
+          type: string
+          jsonPath: .spec.outcome
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            apiVersion: {type: string}
+            kind: {type: string}
+            metadata: {type: object}
+            spec:
+              type: object
+              required: [sessionRef]
+              properties:
+                sessionRef: {type: string}
+                clusterSnapshotRef: {type: string}
+                llmTraceRef: {type: string}
+                changeRequests:
+                  type: array
+                  items: {type: string}
+                outcome: {type: string}
+                retentionDays: {type: integer, minimum: 1}
+                sanitizationEvents:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      timestamp: {type: string}
+                      count: {type: integer, minimum: 0}
+                      source: {type: string}
+                toolCalls:
+                  type: array
+                  items:
+                    type: object
+                    required: [seq, timestamp, tool]
+                    properties:
+                      seq: {type: integer, minimum: 0}
+                      timestamp: {type: string}
+                      sessionId: {type: string}
+                      tool: {type: string}
+                      argsPreview: {type: string}
+                      resultSha256: {type: string}
+                      resultBytes: {type: integer, minimum: 0}
+                      resultPreview: {type: string}
+                      errorClass: {type: string}
+                      redactedCount: {type: integer, minimum: 0}
+                      latencyMs: {type: integer, minimum: 0}

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/aegis-dev/aegis/internal/redact"
 )
 
 // I4 的隔离分隔符。Open/Close 必须成对出现，且不可出现在被包裹数据中——
@@ -15,14 +17,20 @@ const (
 	Close = "</untrusted_cluster_data>"
 )
 
-// Wrap 把集群返回数据包裹为不可信标记。map/struct 走 JSON（Go 的 encoding/json
-// 默认 HTML 转义 < >，本身已能阻断分隔符）；string/[]byte 与 json.RawMessage 等
-// 边界形态再经 Neutralize 兜底，保证数据内不可能出现字面量的 Open/Close。
+// Wrap 把集群返回数据包裹为不可信标记，并在包裹前做敏感信息脱敏。
+// 返回替换后的 any；需要脱敏计数时用 WrapWithStats。
+func Wrap(data any) any {
+	out, _ := WrapWithStats(data)
+	return out
+}
+
+// WrapWithStats 同 Wrap，但返回 redact 命中次数，供审计/指标使用。
+// 顺序：业务数据 → 脱敏 → 尖括号转义 → I4 包裹；秘密不会进入外部模型。
 //
 // nil 返回 nil（不产出空包裹）；错误结果只承载 Err 时不调用本函数。
-func Wrap(data any) any {
+func WrapWithStats(data any) (any, int) {
 	if data == nil {
-		return nil
+		return nil, 0
 	}
 	var body string
 	switch v := data.(type) {
@@ -43,7 +51,8 @@ func Wrap(data any) any {
 			body = strings.TrimSuffix(buf.String(), "\n")
 		}
 	}
-	return Open + Neutralize(body) + Close
+	body, n := redact.String(body)
+	return Open + Neutralize(body) + Close, n
 }
 
 // Neutralize 把数据中的 ASCII 尖括号（以及 JSON 的 \u003c/\u003e 转义）转成

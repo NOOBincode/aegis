@@ -1,18 +1,16 @@
-# aegis 诊断 Agent 的 LLM 通道（ModelConfig）—— win-proxy OpenAI 兼容网关。
-# 双通道设计（设计文档 §3.3）：公网 API 与私域/本地 LLM 同一 openAI 兼容抽象。
-# 本清单走 win-proxy（172.25.16.1:15721，WSL2 宿主网关，kind pod 可达，免认证）。
-# local LLM 接入：换 baseUrl 指向本地 vLLM/Ollama 的 OpenAI 兼容端点即可（契约不变）。
-
-# win-proxy 免认证，但 kagent ModelConfig 要求 apiKeySecret 引用，给占位值。
-apiVersion: v1
-kind: Secret
-metadata:
-  name: aegis-llm
-  namespace: kagent
-  labels: {aegis.dev/component: agent}
-stringData:
-  KEY: "win-proxy-no-auth-required"
----
+# aegis 诊断 Agent 的 LLM 通道（ModelConfig）。
+#
+# 安全纪律（R24 / 外部 AI 出域）：
+#   - 本文件不含任何 API key；key 只存在于 kagent/aegis-llm Secret 中，由
+#     scripts/ai-up.sh 从环境变量/交互式输入创建，禁止写进 git。
+#   - 外部 OpenAI 兼容端点意味着集群数据会离开集群；调用前数据经
+#     internal/sanitize（I4 包裹 + 敏感信息脱敏），但 API 提供商侧的日志/留存
+#     仍是不可控残差。私域/气隙演示请换 baseUrl 指向本地 vLLM/Ollama。
+#   - 默认示例指向 DeepSeek；AEGIS_LLM_BASE_URL / AEGIS_LLM_MODEL 可覆盖。
+#
+# 创建/轮换 key：
+#   AEGIS_LLM_API_KEY=... bash scripts/ai-up.sh --with-agent
+#   或交互式：bash scripts/ai-up.sh --with-agent
 apiVersion: kagent.dev/v1alpha2
 kind: ModelConfig
 metadata:
@@ -21,8 +19,8 @@ metadata:
   labels: {aegis.dev/component: agent}
 spec:
   provider: OpenAI
-  model: agnes-2.0-flash
+  model: deepseek-flash
   openAI:
-    baseUrl: http://172.25.16.1:15721/v1
+    baseUrl: https://api.deepseek.com
   apiKeySecret: aegis-llm
   apiKeySecretKey: KEY

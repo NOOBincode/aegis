@@ -2,9 +2,12 @@ package mcpserver
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"log/slog"
 	"time"
 
+	"github.com/aegis-dev/aegis/internal/redact"
 	"github.com/aegis-dev/aegis/internal/sanitize"
 )
 
@@ -63,8 +66,10 @@ func sanitizeMiddleware(_ Tool, next Handler) Handler {
 		}
 		// 只包裹业务数据；错误结果（Data=nil）不产出空包裹，也不误标 wrapped=true。
 		if res.Data != nil {
-			res.Data = wrapUntrusted(res.Data)
+			wrapped, redacted := sanitize.WrapWithStats(res.Data)
+			res.Data = wrapped
 			res.Meta.Wrapped = true
+			res.Meta.Redacted += redacted
 		}
 		return res
 	}
@@ -93,12 +98,32 @@ func auditMiddleware(tool Tool, next Handler) Handler {
 		if res != nil && res.Err != nil {
 			ec = string(res.Err.Class)
 		}
+		// 审计只落"元数据 + 摘要"：参数与结果摘要先做敏感信息脱敏，绝不落原文；
+		// 外部 AI/日志排查需要原文时，走 DecisionRecord 的受控拷贝，而不是 slog。
+		argsPreview, _ := redact.String(sprintJSON(args))
+		if len(argsPreview) > 512 {
+			argsPreview = argsPreview[:512] + "…"
+		}
+		rawResult := sprintJSON(resData(res))
+		sum := sha256.Sum256([]byte(rawResult))
+		redactedCount := redact.Count(rawResult)
+		resultPreview, _ := redact.String(rawResult)
+		if len(resultPreview) > 1024 {
+			resultPreview = resultPreview[:1024] + "…"
+		}
 		slog.Info("mcp.tool.invoke",
 			"tool_name", tool.Name,
 			"risk_hint", string(tool.Metadata.RiskHint),
 			"latency_ms", latency,
 			"timeout_ms", tool.Metadata.TimeoutMs,
 			"error_class", ec,
+			"session_id", SessionID(ctx),
+			"args_preview", argsPreview,
+			"result_sha256", hex.EncodeToString(sum[:]),
+			"result_bytes", len(rawResult),
+			"redacted_count", redactedCount,
+			"result_preview", resultPreview,
+			"audit", "mcp.tool",
 		)
 		return res
 	}
@@ -134,4 +159,12 @@ func safeInvoke(ctx context.Context, tool Tool, h Handler, args map[string]any) 
 		}
 	}()
 	return h(ctx, args)
+}
+
+// resData 取 Result 的业务数据（nil 安全），供审计摘要/哈希使用。
+func resData(r *Result) any {
+	if r == nil {
+		return nil
+	}
+	return r.Data
 }

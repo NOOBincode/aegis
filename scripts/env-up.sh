@@ -168,7 +168,7 @@ install_kagent() {
   # 这里显式关掉；要启用某个 demo agent 时单独加 --set，不默认全开。
   helm_upsert kagent "${AEGIS_KAGENT_CHART:?}" kagent "${AEGIS_KAGENT_CHART_VERSION:?}" \
     --set providers.default=openAI \
-    --set providers.openAI.apiKey="${AEGIS_KAGENT_LLM_APIKEY:-placeholder-not-for-prod}" \
+    --set providers.openAI.apiKey=placeholder-not-for-prod \
     --set kagent-tools.enabled=false \
     --set grafana-mcp.enabled=false \
     --set k8s-agent.enabled=false \
@@ -187,6 +187,15 @@ install_kagent() {
   if kubectl -n kagent get clusterrolebinding kagent-tools-cluster-admin-rolebinding >/dev/null 2>&1; then
     die 3 kagent_tools_exposed "kagent-tools ClusterRoleBinding 仍存在；显式执行 kubectl delete clusterrolebinding kagent-tools-cluster-admin-rolebinding 后重试"
   fi
+  # 注意：真实 API key 不走 helm --set（会进 Helm release secret/命令行）；只经
+  # scripts/ai-up.sh 写 kagent/aegis-llm Secret，ModelConfig 只做 secret 引用。
+}
+
+apply_crds() {
+  info apply component=crds action=kubectl_apply
+  kubectl apply -f "${AEGIS_ROOT}/crds/" >/dev/null 2>&1 \
+    || die 3 crds apply_fail "crds/ apply 失败；检查 CRD schema 与 apiserver"
+  info apply component=crds result=ok
 }
 
 # ---- 4. runsc 冒烟（显式降级：沙箱是环境能力，不可用必须可见，绝不假装可用）----
@@ -247,6 +256,7 @@ main() {
   want argocd        && install_argocd
   want kagent        && install_kagent
   want metrics-server && install_metrics_server
+  apply_crds
   runsc_smoke
   summary
   info done "duration_ms=$(( (SECONDS - t0) * 1000 ))"
