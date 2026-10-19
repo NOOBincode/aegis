@@ -27,13 +27,21 @@ type Tool struct {
 
 // Registry 是工具注册表。注册期即做强校验（非运行期发现），缺一字段即拒绝（T1.1 判据）。
 type Registry struct {
-	mu    sync.RWMutex
-	tools map[string]Tool
+	mu     sync.RWMutex
+	tools  map[string]Tool
+	budget BudgetLimiter
 }
 
 // NewRegistry 构造空注册表。
 func NewRegistry() *Registry {
 	return &Registry{tools: make(map[string]Tool)}
+}
+
+// SetBudget 注入会话预算（nil=不限制）。M1 由 mcp-servers 启动期装配。
+func (r *Registry) SetBudget(b BudgetLimiter) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.budget = b
 }
 
 // Register 注册一个工具。校验顺序：名称/执行体 → schema → 元数据五字段。任一不过即拒绝并给出缺失项。
@@ -100,5 +108,8 @@ func (r *Registry) Invoke(ctx context.Context, name string, args map[string]any)
 	if !ok {
 		return &Result{Err: newProtocolError(ErrClassUnknownTool, "未注册的工具名 %q", name)}
 	}
-	return chain(tool, defaultChain(), tool.Handler)(ctx, args)
+	r.mu.RLock()
+	budget := r.budget
+	r.mu.RUnlock()
+	return chain(tool, defaultChain(budget), tool.Handler)(ctx, args)
 }

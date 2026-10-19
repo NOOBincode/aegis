@@ -15,9 +15,11 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 
 	k8sadapter "github.com/aegis-dev/aegis/internal/adapters/k8s"
+	"github.com/aegis-dev/aegis/internal/breaker"
 	"github.com/aegis-dev/aegis/internal/mcpserver"
 	"github.com/aegis-dev/aegis/internal/policyload"
 	"github.com/aegis-dev/aegis/internal/scan"
+	"github.com/aegis-dev/aegis/internal/session"
 )
 
 const (
@@ -36,7 +38,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	limits := session.LimitsFromEnv()
 	reg := mcpserver.NewRegistry()
+	budget := session.NewManager(limits)
+	if limits.QPS > 0 {
+		budget.WithQPS(breaker.NewQPSWindow(limits.QPS, limits.QPSWindow))
+	}
+	reg.SetBudget(budget)
 	reg.MustRegister(scanClusterTool(svc)) // 元数据五字段缺一注册即 panic（fail-fast）
 
 	logger.Info("scan 启动", "tools", reg.Len(), "addr", listenAddr)

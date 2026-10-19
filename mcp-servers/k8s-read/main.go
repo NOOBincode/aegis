@@ -10,7 +10,9 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/aegis-dev/aegis/internal/breaker"
 	"github.com/aegis-dev/aegis/internal/mcpserver"
+	"github.com/aegis-dev/aegis/internal/session"
 	"github.com/aegis-dev/aegis/mcp-servers/k8s-read/reader"
 )
 
@@ -31,7 +33,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	limits := session.LimitsFromEnv()
 	reg := mcpserver.NewRegistry()
+	budget := session.NewManager(limits)
+	if limits.QPS > 0 {
+		budget.WithQPS(breaker.NewQPSWindow(limits.QPS, limits.QPSWindow))
+	}
+	reg.SetBudget(budget)
 	registerTools(reg, r) // 8 个只读工具；元数据五字段缺一注册即 panic（fail-fast）
 
 	logger.Info("k8s-read 启动", "tools", reg.Len(), "addr", listenAddr)

@@ -158,3 +158,39 @@ func TestBlackBoxListToolsContract(t *testing.T) {
 		t.Errorf("应有 idempotentHint=true")
 	}
 }
+
+// 会话预算耗尽：经真实 MCP 协议（带 Mcp-Session-Id）第二次调用应返回 rate_limited；
+// 证明限流在 HTTP 会话聚合，而不是只在单测里。
+func TestBlackBoxSessionBudget(t *testing.T) {
+	reg := NewRegistry()
+	reg.SetBudget(&testBudget{limit: 1})
+	if err := reg.Register(validTool("get_nodes")); err != nil {
+		t.Fatal(err)
+	}
+	srv := NewServer("budget", "0.0.1", reg)
+	h, err := srv.HTTPHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpSrv := httptest.NewServer(h)
+	defer httpSrv.Close()
+	c, err := client.NewStreamableHttpClient(httpSrv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := c.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	if _, err := c.Initialize(ctx, mcp.InitializeRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	if res := callTool(t, c, "get_nodes", nil); res.IsError {
+		t.Fatalf("第一次不应被限流：%+v", res)
+	}
+	res := callTool(t, c, "get_nodes", nil)
+	if !res.IsError || !strings.Contains(resultText(res), string(ErrClassRateLimited)) {
+		t.Fatalf("第二次应 rate_limited，got %+v", res)
+	}
+}

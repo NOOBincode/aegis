@@ -27,14 +27,21 @@ func chain(tool Tool, mws []Middleware, final Handler) Handler {
 	return h
 }
 
+// BudgetLimiter 是会话预算端口（T1.4）。实现由 internal/session 提供；
+// 框架只负责调用，不把预算规则写进 MCP 层（I1 职责边界）。
+type BudgetLimiter interface {
+	Before(ctx context.Context, sessionID, tool string) error
+	After(ctx context.Context, sessionID, tool string, tokens int) error
+}
+
 // defaultChain 是 aegis 工具的统一中间件链（M1 形态）。
-func defaultChain() []Middleware {
+func defaultChain(budget BudgetLimiter) []Middleware {
 	return []Middleware{
-		authnEnvelopeMiddleware, // 1. 鉴权信封（M2 T2.11 落 mTLS+序号；M1 为接缝）
-		rateLimitMiddleware,     // 2. 限流（T1.4 落双预算；M1 为接缝）
-		sanitizeMiddleware,      // 3. sanitize 包裹（I4 M1 形态：标记+留痕）
-		auditMiddleware,         // 4. 审计埋点（I6；M1 落结构化日志，供 internal/audit 组装）
-		timeoutMiddleware,       // 5. 超时控制（I10；以 metadata.timeout_ms 为上界）
+		authnEnvelopeMiddleware,     // 1. 鉴权信封（M2 T2.11 落 mTLS+序号；M1 为接缝）
+		rateLimitMiddleware(budget), // 2. 限流（T1.4 双预算；nil=不限制）
+		sanitizeMiddleware,          // 3. sanitize 包裹（I4 M1 形态：标记+留痕）
+		auditMiddleware,             // 4. 审计埋点（I6；M1 落结构化日志，供 internal/audit 组装）
+		timeoutMiddleware,           // 5. 超时控制（I10；以 metadata.timeout_ms 为上界）
 	}
 }
 
@@ -47,13 +54,45 @@ func authnEnvelopeMiddleware(_ Tool, next Handler) Handler {
 	}
 }
 
-// rateLimitMiddleware 限流接缝。T1.4 落会话工具数/token + apiserver QPS 双预算（F4/F5）。
-// 超限返回协议错误 ErrClassRateLimited（429 + 分页引导）。M1 暂为直通。
-func rateLimitMiddleware(_ Tool, next Handler) Handler {
-	return func(ctx context.Context, args map[string]any) *Result {
-		// TODO(T1.4): 双预算检查，耗尽返回协议错误并告知预算口径。
-		return next(ctx, args)
+// rateLimitMiddleware 限流（T1.4）：每次调用按 session 聚合 tool calls/tokens，
+// 预算耗尽返回协议错误 ErrClassRateLimited（429）。After 把本次 token 估算计入；
+// 若本次把预算推过顶，本次结果仍返回（保留当前结论），下一次 Before 会被拦。
+func rateLimitMiddleware(budget BudgetLimiter) Middleware {
+	return func(tool Tool, next Handler) Handler {
+		return func(ctx context.Context, args map[string]any) *Result {
+			if budget == nil {
+				return next(ctx, args)
+			}
+			sid := SessionID(ctx)
+			if err := budget.Before(ctx, sid, tool.Name); err != nil {
+				return &Result{Err: newProtocolError(ErrClassRateLimited, "会话预算耗尽：%v", err)}
+			}
+			res := next(ctx, args)
+			if res == nil {
+				res = &Result{}
+			}
+			tokens := estimateTokens(args) + estimateTokens(res.Data)
+			if err := budget.After(ctx, sid, tool.Name, tokens); err != nil {
+				// 不丢当前结论：结果照常返回，但显式标记预算已耗尽，下一次调用会被 Before 拦截。
+				res.Meta.RemainingBudget = &Budget{}
+				slog.Warn("mcp.budget.exhausted", "session_id", sid, "tool_name", tool.Name, "error", err)
+			}
+			return res
+		}
 	}
+}
+
+// estimateTokens 是读路径的保守 token 估算：JSON 字节数 / 4，至少 1。
+// 不做真实 tokenizer（避免依赖/成本）；预算用于防失控，不用于计费。
+func estimateTokens(v any) int {
+	if v == nil {
+		return 0
+	}
+	n := len(sprintJSON(v))
+	if n == 0 {
+		return 0
+	}
+	return (n + 3) / 4
 }
 
 // sanitizeMiddleware 数据隔离包裹（I4 的 M1 形态，T1.5）：工具出口数据统一包裹

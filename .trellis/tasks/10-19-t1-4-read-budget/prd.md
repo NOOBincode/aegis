@@ -13,9 +13,18 @@ internal/session 落地读路径双预算（工具调用数/token 数 + apiserve
 
 ## Acceptance Criteria
 
-- [ ] 单测：工具调用数/token/QPS 三类超限均返回 rate_limited；并发聚合计数不绕过。
-- [ ] 集成：构造超预算会话，调用被暂停且返回当前预算口径。
-- [ ] `make lint` 逐 module 0 issues；根 module 测试通过。
+- [x] 单测：工具调用数/token/QPS 三类超限均返回 rate_limited；并发聚合计数不绕过。
+- [x] 集成：`TestBlackBoxSessionBudget` 经真实 MCP HTTP 会话，第二次调用返回 rate_limited；token 超限保留当前结果并在下一次 Before 拦截。
+- [x] `make lint` 逐 module 0 issues；根 module 测试通过（-race 全绿）。
+
+## Evidence
+
+- `internal/session`：`Manager` 并发安全聚合 tool calls/tokens；`LimitsFromEnv` 默认 50 calls/200k tokens/10 QPS，`AEGIS_SESSION_BUDGET_DISABLED=1` 可关。
+- `internal/breaker.QPSWindow`：滑动窗口纯函数（时间注入，无 sleep）；会话 `Before` 调用 QPS。
+- `internal/mcpserver`：`BudgetLimiter` 端口 + `rateLimitMiddleware`；超限协议错误 `rate_limited`；token 超限保留当前结果、`Meta.RemainingBudget` 置零、下一次调用拦截；审计日志含 `session_id`。
+- `mcp-servers/scan` / `k8s-read` 启动期装配 `session.Manager + breaker.QPSWindow`。
+- 2026-10-19：`TestBlackBoxSessionBudget` 通过；`make test -race` 全绿；lint 0 issues。
+- 残余：QPS/预算是**进程内**的，多副本共享预算需 M2 Redis 端口；GuardrailPolicy 下发 M2 接。
 
 ## Notes
 

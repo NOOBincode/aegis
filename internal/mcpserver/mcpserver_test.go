@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -267,5 +268,68 @@ func TestAuditLogHasReplayMetadata(t *testing.T) {
 	}
 	if strings.Contains(logLine, "sk-testonly") {
 		t.Fatalf("审计日志泄漏 key：%s", logLine)
+	}
+}
+
+type testBudget struct {
+	calls int
+	limit int
+}
+
+func (b *testBudget) Before(_ context.Context, _, _ string) error {
+	b.calls++
+	if b.calls > b.limit {
+		return fmt.Errorf("limit")
+	}
+	return nil
+}
+func (b *testBudget) After(context.Context, string, string, int) error { return nil }
+
+func TestRateLimitMiddleware(t *testing.T) {
+	r := NewRegistry()
+	r.SetBudget(&testBudget{limit: 2})
+	tool := validTool("ok")
+	tool.Handler = func(context.Context, map[string]any) *Result { return &Result{Data: map[string]any{"ok": true}} }
+	if err := r.Register(tool); err != nil {
+		t.Fatal(err)
+	}
+	ctx := WithSessionID(context.Background(), "s1")
+	for i := 0; i < 2; i++ {
+		if res := r.Invoke(ctx, "ok", nil); res.Err != nil {
+			t.Fatalf("第 %d 次不应失败：%v", i+1, res.Err)
+		}
+	}
+	res := r.Invoke(ctx, "ok", nil)
+	if res.Err == nil || res.Err.Class != ErrClassRateLimited || !res.Err.Protocol {
+		t.Fatalf("第三次应返回 rate_limited 协议错误：%+v", res.Err)
+	}
+}
+
+type tokenBudget struct{ afterErr bool }
+
+func (b *tokenBudget) Before(context.Context, string, string) error { return nil }
+func (b *tokenBudget) After(context.Context, string, string, int) error {
+	if b.afterErr {
+		return fmt.Errorf("tokens exhausted")
+	}
+	return nil
+}
+
+func TestRateLimitTokenExhaustionKeepsResult(t *testing.T) {
+	r := NewRegistry()
+	r.SetBudget(&tokenBudget{afterErr: true})
+	tool := validTool("ok")
+	tool.Handler = func(context.Context, map[string]any) *Result {
+		return &Result{Data: map[string]any{"findings": []string{"OOM_KILLED"}}}
+	}
+	if err := r.Register(tool); err != nil {
+		t.Fatal(err)
+	}
+	res := r.Invoke(WithSessionID(context.Background(), "s"), "ok", nil)
+	if res.Err != nil {
+		t.Fatalf("token 刚超限不应丢当前结论：%v", res.Err)
+	}
+	if res.Meta.RemainingBudget == nil {
+		t.Fatal("应标记预算已耗尽")
 	}
 }
