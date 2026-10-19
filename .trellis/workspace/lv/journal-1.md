@@ -216,3 +216,35 @@ scan server 部署进 kind 并注册 kagent MCPServer CR（SA 只读 RBAC + serv
 ### Next Steps
 
 - T1.8 DecisionRecord/replay；R24 脱敏/私域通道
+
+
+## Session 8: AI Key 安全接入 + 出域脱敏 + T1.8 replay + T1.4 双预算
+<!-- trellis-session: v=2 fp=1208058666a855e8 -->
+
+**Date**: 2026-10-19
+**Task**: AI Key 安全接入 + 出域脱敏 + T1.8 replay + T1.4 双预算
+**Package**: aegis-cli
+**Branch**: `fix/m1-blockers`
+
+### Summary
+
+ai-up/ai-down 只经 env/read -s+0600 临时文件+Secret，ModelConfig 只引用 Secret；helm 不再注入 apiKey。internal/redact + sanitize + CLI 报告/审计日志脱敏，docs/data-egress + AS-16 明确外部 AI 残差。T1.8 DecisionRecord CRD/internal audit/aegis-cli replay 实机通过；scripts/m1-demo full 模式（Agent+replay）rc=0，7 tool calls、clusterSnapshotRef、outcome 落库。T1.4 session 双预算 tool/token/QPS 与 MCP 限流中间件，blackbox 过。真实 key 测试后 ai-down 删除；仓库/历史/远端无 key。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `38102cf` | feat(security): AI key/出域治理 + DecisionRecord/replay（T1.8/T1.10） |
+| `6087432` | feat(mcp): T1.4 会话双预算（tool/token/QPS）与 MCP 限流中间件 |
+
+### Testing
+
+- [OK] make test -race 全绿；lint 0；check-secrets --history；m1-demo full；TestBlackBoxSessionBudget
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- M1 剩余 T1.3 观测工具（prom/logs/events）；M0 T0.3/T0.5 收口；之后 M2
