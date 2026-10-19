@@ -13,6 +13,7 @@ import (
 // Level 是风险级别。
 type Level string
 
+// LevelR0 是只读/无影响；R1–R3 由确定性表与上下文修饰取高。
 const (
 	LevelR0 Level = "R0"
 	LevelR1 Level = "R1"
