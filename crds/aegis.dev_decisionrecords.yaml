@@ -72,3 +72,5 @@ spec:
                       errorClass: {type: string}
                       redactedCount: {type: integer, minimum: 0}
                       latencyMs: {type: integer, minimum: 0}
+                      injectionHit: {type: boolean}
+                      injectionPatterns: {type: array, items: {type: string}}

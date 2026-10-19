@@ -32,17 +32,19 @@ type DecisionRecordSpec struct {
 
 // ToolCall 记录一次只读工具调用（审计/回放的最小单元）。
 type ToolCall struct {
-	Seq           int    `json:"seq"`
-	Timestamp     string `json:"timestamp"`
-	SessionID     string `json:"sessionId,omitempty"`
-	Tool          string `json:"tool"`
-	ArgsPreview   string `json:"argsPreview,omitempty"`
-	ResultSHA256  string `json:"resultSha256,omitempty"`
-	ResultBytes   int    `json:"resultBytes,omitempty"`
-	ResultPreview string `json:"resultPreview,omitempty"`
-	ErrorClass    string `json:"errorClass,omitempty"`
-	RedactedCount int    `json:"redactedCount,omitempty"`
-	LatencyMs     int64  `json:"latencyMs,omitempty"`
+	Seq               int      `json:"seq"`
+	Timestamp         string   `json:"timestamp"`
+	SessionID         string   `json:"sessionId,omitempty"`
+	Tool              string   `json:"tool"`
+	ArgsPreview       string   `json:"argsPreview,omitempty"`
+	ResultSHA256      string   `json:"resultSha256,omitempty"`
+	ResultBytes       int      `json:"resultBytes,omitempty"`
+	ResultPreview     string   `json:"resultPreview,omitempty"`
+	ErrorClass        string   `json:"errorClass,omitempty"`
+	RedactedCount     int      `json:"redactedCount,omitempty"`
+	LatencyMs         int64    `json:"latencyMs,omitempty"`
+	InjectionHit      bool     `json:"injectionHit,omitempty"`
+	InjectionPatterns []string `json:"injectionPatterns,omitempty"`
 }
 
 // SanitizationEvent 记录一次脱敏命中（只计数，不含原值）。

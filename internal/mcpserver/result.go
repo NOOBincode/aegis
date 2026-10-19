@@ -25,6 +25,10 @@ type Meta struct {
 	Wrapped bool `json:"wrapped"`
 	// Redacted 本次出口数据中命中的敏感模式数（R24；只计数，不留原值）。
 	Redacted int `json:"redacted_secrets,omitempty"`
+	// InjectionHit 是否命中 I4 指令型注入模式；命中后数据衍生的动作至少 R2。
+	InjectionHit bool `json:"injection_hit,omitempty"`
+	// InjectionPatterns 命中的模式 ID（不含原文）。
+	InjectionPatterns []string `json:"injection_patterns,omitempty"`
 	// NextCursor 分页游标；空表示无更多。
 	NextCursor string `json:"next_cursor,omitempty"`
 	// RemainingBudget 会话剩余预算提示（F4），供 Agent 自决收敛。

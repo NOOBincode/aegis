@@ -154,6 +154,7 @@ func auditRecordFromAPI(dr *aegisv1.DecisionRecord) audit.Record {
 			Seq: c.Seq, SessionID: c.SessionID, Tool: c.Tool, ArgsPreview: c.ArgsPreview,
 			ResultSHA256: c.ResultSHA256, ResultBytes: c.ResultBytes, ResultPreview: c.ResultPreview,
 			ErrorClass: c.ErrorClass, RedactedCount: c.RedactedCount, LatencyMs: c.LatencyMs,
+			InjectionHit: c.InjectionHit, InjectionPatterns: c.InjectionPatterns,
 		}
 		if t, err := time.Parse(time.RFC3339Nano, c.Timestamp); err == nil {
 			tc.Timestamp = t
@@ -191,7 +192,7 @@ func apiRecordFromAudit(rec audit.Record) aegisv1.DecisionRecord {
 			Seq: c.Seq, Timestamp: ts, SessionID: c.SessionID, Tool: c.Tool,
 			ArgsPreview: c.ArgsPreview, ResultSHA256: c.ResultSHA256, ResultBytes: c.ResultBytes,
 			ResultPreview: c.ResultPreview, ErrorClass: c.ErrorClass, RedactedCount: c.RedactedCount,
-			LatencyMs: c.LatencyMs,
+			LatencyMs: c.LatencyMs, InjectionHit: c.InjectionHit, InjectionPatterns: c.InjectionPatterns,
 		})
 	}
 	for _, e := range rec.SanitizationEvents {

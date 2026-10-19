@@ -14,17 +14,19 @@ import (
 // api/v1alpha1.DecisionRecord 的 spec.toolCalls 对齐；本包不 import k8s，
 // 由 cmd/aegis-cli 在装配层做契约转换（DDD 依赖方向）。
 type ToolCall struct {
-	Seq           int
-	Timestamp     time.Time
-	SessionID     string
-	Tool          string
-	ArgsPreview   string
-	ResultSHA256  string
-	ResultBytes   int
-	ResultPreview string
-	ErrorClass    string
-	RedactedCount int
-	LatencyMs     int64
+	Seq               int
+	Timestamp         time.Time
+	SessionID         string
+	Tool              string
+	ArgsPreview       string
+	ResultSHA256      string
+	ResultBytes       int
+	ResultPreview     string
+	ErrorClass        string
+	RedactedCount     int
+	LatencyMs         int64
+	InjectionHit      bool
+	InjectionPatterns []string
 }
 
 // SanitizationEvent 是脱敏命中的聚合事件（只计数，不含原值）。
@@ -65,15 +67,17 @@ func ParseLog(r io.Reader) ([]ToolCall, error) {
 			continue
 		}
 		tc := ToolCall{
-			SessionID:     str(m["session_id"]),
-			Tool:          str(m["tool_name"]),
-			ArgsPreview:   str(m["args_preview"]),
-			ResultSHA256:  str(m["result_sha256"]),
-			ResultPreview: str(m["result_preview"]),
-			ErrorClass:    str(m["error_class"]),
-			ResultBytes:   intOf(m["result_bytes"]),
-			RedactedCount: intOf(m["redacted_count"]),
-			LatencyMs:     int64(intOf(m["latency_ms"])),
+			SessionID:         str(m["session_id"]),
+			Tool:              str(m["tool_name"]),
+			ArgsPreview:       str(m["args_preview"]),
+			ResultSHA256:      str(m["result_sha256"]),
+			ResultPreview:     str(m["result_preview"]),
+			ErrorClass:        str(m["error_class"]),
+			ResultBytes:       intOf(m["result_bytes"]),
+			RedactedCount:     intOf(m["redacted_count"]),
+			LatencyMs:         int64(intOf(m["latency_ms"])),
+			InjectionHit:      boolOf(m["injection_hit"]),
+			InjectionPatterns: stringsOf(m["injection_patterns"]),
 		}
 		if tc.Tool == "" {
 			continue
@@ -153,6 +157,11 @@ func Render(w io.Writer, rec Record) error {
 				return err
 			}
 		}
+		if c.InjectionHit {
+			if _, err := fmt.Fprintf(w, "    injection_hit: %s\n", strings.Join(c.InjectionPatterns, ",")); err != nil {
+				return err
+			}
+		}
 		if c.ResultSHA256 != "" {
 			if _, err := fmt.Fprintf(w, "    sha256: %s\n", c.ResultSHA256); err != nil {
 				return err
@@ -204,4 +213,26 @@ func short(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+func boolOf(v any) bool {
+	b, _ := v.(bool)
+	return b
+}
+
+func stringsOf(v any) []string {
+	arr, ok := v.([]any)
+	if !ok {
+		if ss, ok := v.([]string); ok {
+			return ss
+		}
+		return nil
+	}
+	out := make([]string, 0, len(arr))
+	for _, x := range arr {
+		if s, ok := x.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
 }

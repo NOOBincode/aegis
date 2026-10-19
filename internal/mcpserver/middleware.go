@@ -105,10 +105,14 @@ func sanitizeMiddleware(_ Tool, next Handler) Handler {
 		}
 		// 只包裹业务数据；错误结果（Data=nil）不产出空包裹，也不误标 wrapped=true。
 		if res.Data != nil {
+			raw := sprintJSON(res.Data)
+			hit := sanitize.DetectInjection(raw)
 			wrapped, redacted := sanitize.WrapWithStats(res.Data)
 			res.Data = wrapped
 			res.Meta.Wrapped = true
 			res.Meta.Redacted += redacted
+			res.Meta.InjectionHit = res.Meta.InjectionHit || hit.Matched
+			res.Meta.InjectionPatterns = append(res.Meta.InjectionPatterns, hit.Patterns...)
 		}
 		return res
 	}
@@ -150,6 +154,7 @@ func auditMiddleware(tool Tool, next Handler) Handler {
 		if len(resultPreview) > 1024 {
 			resultPreview = resultPreview[:1024] + "…"
 		}
+		inj := sanitize.DetectInjection(rawResult)
 		slog.Info("mcp.tool.invoke",
 			"tool_name", tool.Name,
 			"risk_hint", string(tool.Metadata.RiskHint),
@@ -162,6 +167,8 @@ func auditMiddleware(tool Tool, next Handler) Handler {
 			"result_bytes", len(rawResult),
 			"redacted_count", redactedCount,
 			"result_preview", resultPreview,
+			"injection_hit", inj.Matched,
+			"injection_patterns", inj.Patterns,
 			"audit", "mcp.tool",
 		)
 		return res
