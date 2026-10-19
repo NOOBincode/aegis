@@ -20,7 +20,8 @@
   "subtasks": [],
   "children": [
     "10-20-t2-1-crds-state-machine",
-    "10-20-t2-2-risk-classifier"
+    "10-20-t2-2-risk-classifier",
+    "10-20-t2-3-policy-approval"
   ],
   "parent": null,
   "relatedFiles": [],
