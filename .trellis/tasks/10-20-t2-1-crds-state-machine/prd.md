@@ -44,3 +44,5 @@
 - 风险：controller-gen 未在仓库内固化；若本任务手写 manifest，必须在 PR 描述标注并建 T2.1-followup 补生成链。
 
 - 2026-10-20：controller 接入 `Executor`；`--enable-writes` 才启用 ScaleExecutor（默认 fail-closed 只读）。实机 E2E：CR Pending + Deployment replicas=1 → controller 执行/验证 → replicas=2、CR Committed；R2 未审批不执行单测覆盖。
+
+- 2026-10-20 全链路实测：gatekeeper MCP `request_change`（scale +1，R1 allow）→ CR Pending → controller（`--enable-writes`）→ ScaleExecutor → Deployment replicas 1→2 → CR `Committed`；随后清理。
