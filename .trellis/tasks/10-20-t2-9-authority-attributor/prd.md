@@ -22,6 +22,7 @@ I9 的核心：字段级所有权图谱回答“这个字段归谁管”，attri
 - [x] 翻译规则 HPA/VPA/ArgoCD/未知/无 owner 全组合。
 - [x] 归因 attributed/partial/unattributed 边界（窗口/方向/幅度）。
 - [x] 单测通过；lint 0。
+- [x] `internal/adapters/k8s/AuthorityProvider` 基础版：HPA scaleTargetRef、ArgoCD 注解/managedFields、aegis manager → Graph；fake clientset 单测通过。
 - [ ] informer 增量刷新、Events/audit/指标接线、T2.9 kind 判据。
 
 ## Notes
