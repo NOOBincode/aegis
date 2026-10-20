@@ -1,6 +1,8 @@
 package gatekeeper
 
 import (
+	"context"
+	"fmt"
 	"testing"
 
 	"github.com/aegis-dev/aegis/internal/approval"
@@ -66,5 +68,28 @@ func TestPolicyQuotaRejects(t *testing.T) {
 	in.Risk.BlastRadius = risk.BlastRadius{Pods: 11}
 	if d := Evaluate(in); d.Allow || !d.Reject {
 		t.Fatalf("超配额应拒绝：%+v", d)
+	}
+}
+
+type fakeEngine struct {
+	allowed bool
+	reason  string
+	err     error
+}
+
+func (f fakeEngine) Evaluate(context.Context, string, any) (bool, string, error) {
+	return f.allowed, f.reason, f.err
+}
+
+func TestOPAFailClosed(t *testing.T) {
+	in := scaleInput(1)
+	if d := EvaluateWithOPA(context.Background(), in, fakeEngine{err: fmt.Errorf("timeout")}, "aegis/allow", nil); d.Allow || !d.Reject {
+		t.Fatalf("OPA 错误应拒绝：%+v", d)
+	}
+	if d := EvaluateWithOPA(context.Background(), in, fakeEngine{allowed: false, reason: "quota"}, "aegis/allow", nil); d.Allow || !d.Reject {
+		t.Fatalf("OPA 拒绝应拒绝：%+v", d)
+	}
+	if d := EvaluateWithOPA(context.Background(), in, fakeEngine{allowed: true}, "aegis/allow", nil); !d.Allow || !d.AutoExecutable {
+		t.Fatalf("OPA 允许不应覆盖纯领域放行：%+v", d)
 	}
 }

@@ -23,6 +23,7 @@ R3 硬拒/配额/速率/预算/熔断 + R2 强制人审；审批人身份必须�
 - [x] approval 纯领域：Required/actor/自批/终态校验；approve/deny 单测通过。
 - [x] `internal/policy`、`internal/approval` 单测全绿；lint 0。
 - [x] OPA/Rego 适配器 `internal/adapters/opa` 已落：HTTP /v1/data、bool/{allow,reason}、超时/非 2xx fail-closed；httptest 覆盖。
+- [x] `internal/gatekeeper.EvaluateWithOPA` 已接 PolicyEngine：OPA 错误/拒绝一律 fail-closed；纯领域拒绝时不调用 OPA。
 - [ ] CLI approve/deny 无绕过（T2.4）。
 - [ ] gatekeeper 执行路径接入（T2.8）。
 

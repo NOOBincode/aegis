@@ -6,6 +6,8 @@
 package gatekeeper
 
 import (
+	"context"
+
 	"github.com/aegis-dev/aegis/internal/approval"
 	"github.com/aegis-dev/aegis/internal/policy"
 	"github.com/aegis-dev/aegis/internal/risk"
@@ -83,5 +85,38 @@ func Evaluate(in Input) Decision {
 	}
 	d.Allow = true
 	d.AutoExecutable = !d.RequiresApproval && d.Risk.AutoExecutable && d.Policy.Allow
+	return d
+}
+
+// PolicyEngine 是 OPA/Rego 求值端口；实现由 internal/adapters/opa 提供。
+// 超时/错误必须由调用方视为拒绝（fail-closed），本函数不会把错误当允许。
+type PolicyEngine interface {
+	Evaluate(ctx context.Context, path string, input any) (allowed bool, reason string, err error)
+}
+
+// EvaluateWithOPA 在纯领域决策之上叠加 OPA 策略；OPA 失败/拒绝一律使最终结果拒绝。
+// 纯 policy 已拒绝时不再调用 OPA（省一次外部调用）；OPA 只做额外否决，不做放行覆盖。
+func EvaluateWithOPA(ctx context.Context, in Input, engine PolicyEngine, path string, opaInput any) Decision {
+	d := Evaluate(in)
+	if engine == nil {
+		return d
+	}
+	allowed, reason, err := engine.Evaluate(ctx, path, opaInput)
+	if err != nil {
+		d.Allow = false
+		d.Reject = true
+		d.AutoExecutable = false
+		d.Reasons = append(d.Reasons, "OPA 不可用/超时，fail-closed 拒绝："+err.Error())
+		return d
+	}
+	if !allowed {
+		d.Allow = false
+		d.Reject = true
+		d.AutoExecutable = false
+		if reason == "" {
+			reason = "OPA 策略拒绝"
+		}
+		d.Reasons = append(d.Reasons, reason)
+	}
 	return d
 }
