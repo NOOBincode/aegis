@@ -24,6 +24,7 @@ type ChangeRequest struct {
 // ChangeRequestSpec 字段全量对齐 §5.1；第一版即包含 abort/timeout/rollback 契约。
 type ChangeRequestSpec struct {
 	SessionRef         string            `json:"sessionRef"`
+	RequestedBy        string            `json:"requestedBy,omitempty"`
 	ClusterRef         string            `json:"clusterRef,omitempty"`
 	IdempotencyKey     string            `json:"idempotencyKey"`
 	Intent             string            `json:"intent"`
@@ -83,6 +84,7 @@ const (
 // Approval 是审批证据；status.approval 由 gatekeeper 认证接口写入（R16）。
 type Approval struct {
 	Required  bool   `json:"required,omitempty"`
+	State     string `json:"state,omitempty"` // Pending | Approved | Denied（status 由 gatekeeper 写）
 	Approver  string `json:"approver,omitempty"`
 	DecidedAt string `json:"decidedAt,omitempty"`
 	Channel   string `json:"channel,omitempty"` // cli | webhook
@@ -133,6 +135,7 @@ type Rollback struct {
 // ChangeRequestStatus 由 controller 独占写入。
 type ChangeRequestStatus struct {
 	State              ChangeRequestState `json:"state,omitempty"`
+	Approval           Approval           `json:"approval,omitempty"`
 	Abort              Abort              `json:"abort,omitempty"`
 	ExecutedOps        int                `json:"executedOps,omitempty"`
 	Verification       Verification       `json:"verification,omitempty"`

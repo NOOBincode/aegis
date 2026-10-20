@@ -19,8 +19,9 @@ CLI 只提交带 HMAC 信封的人审意图，不实现审批状态机、不写 
 - [x] CLI approve/deny + HMAC 信封 + http(s) endpoint + actor 必填。
 - [x] CLI 无 `--yes`/本地判定；缺 secret 拒绝。
 - [x] httptest 校验签名与 payload；lint 0。
-- [ ] gatekeeper 审批 HTTP 接口（验签→approval.Decide→写 status.approval）与 mTLS 身份。
-- [ ] CLI 与真实服务端端到端。
+- [x] gatekeeper `/v1/approval` HTTP 入口：验签→approval.Decide→写 status.approval；fake dynamic 测试通过。
+- [ ] mTLS 身份绑定（当前 actor 来自签名 payload，T2.11 传输层待接）。
+- [ ] CLI 与真实服务端端到端（测试分别覆盖 CLI 签名提交/服务端验签，未合并跑）。
 
 ## Notes
 

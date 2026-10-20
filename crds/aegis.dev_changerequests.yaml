@@ -37,6 +37,7 @@ spec:
               required: [sessionRef, idempotencyKey, intent, source, operations]
               properties:
                 sessionRef: {type: string}
+                requestedBy: {type: string}
                 clusterRef: {type: string}
                 idempotencyKey: {type: string, minLength: 1, maxLength: 128}
                 intent: {type: string, maxLength: 2048}
@@ -46,6 +47,7 @@ spec:
                   type: object
                   properties:
                     required: {type: boolean}
+                    state: {type: string, enum: [Pending, Approved, Denied, ""]}
                     approver: {type: string}
                     decidedAt: {type: string}
                     channel: {type: string, enum: [cli, webhook, ""]}
@@ -101,6 +103,14 @@ spec:
                 state:
                   type: string
                   enum: [Pending, DryRunning, AwaitingApproval, Executing, Verifying, Committed, RolledBack, PartiallyRolledBack, Aborted, Rejected]
+                approval:
+                  type: object
+                  properties:
+                    required: {type: boolean}
+                    state: {type: string, enum: [Pending, Approved, Denied, ""]}
+                    approver: {type: string}
+                    decidedAt: {type: string}
+                    channel: {type: string, enum: [cli, webhook, ""]}
                 abort:
                   type: object
                   properties:
