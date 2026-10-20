@@ -18,7 +18,8 @@ R2 通道的产物是 PR 而不是集群变更：白名单 repo、CR 绑定、�
 - [x] PR 构造成功：白名单 + 五段 + 上限 + 分支派生。
 - [x] 非白名单/缺段/空 patch/超 64KB/非法 cr_ref 全部拒绝。
 - [x] 单测通过；lint 0。
-- [ ] git 平台 API adapter + `mcp-servers/gitops` open_change_pr + ArgoCD sync 端到端。
+- [x] `internal/adapters/git` GitHub 兼容 PR 创建 adapter：token/owner/repo、html_url、非 2xx fail-closed；httptest 通过。
+- [ ] `mcp-servers/gitops` open_change_pr + ArgoCD sync 端到端。
 
 ## Notes
 
