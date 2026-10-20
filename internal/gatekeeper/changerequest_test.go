@@ -4,10 +4,13 @@ import (
 	"context"
 	"testing"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
+	aegisv1 "github.com/aegis-dev/aegis/api/v1alpha1"
 	"github.com/aegis-dev/aegis/internal/policy"
 	"github.com/aegis-dev/aegis/internal/risk"
 )
@@ -33,8 +36,8 @@ func newSubmitService(t *testing.T) *ChangeRequestService {
 func TestSubmitR1CreatesPendingAndIdempotent(t *testing.T) {
 	s := newSubmitService(t)
 	got, err := s.Submit(context.Background(), submitFixture())
-	if err != nil || !got.Created || got.Decision.Reject {
-		t.Fatalf("got=%+v err=%v", got, err)
+	if err != nil || !got.Created || got.Decision.Reject || got.Decision.RequiresApproval {
+		t.Fatalf("R1 不应需审批：got=%+v err=%v", got, err)
 	}
 	again, err := s.Submit(context.Background(), submitFixture())
 	if err != nil || again.Created {
@@ -42,6 +45,14 @@ func TestSubmitR1CreatesPendingAndIdempotent(t *testing.T) {
 	}
 	if got.Name != again.Name {
 		t.Fatalf("name=%q/%q", got.Name, again.Name)
+	}
+	u, err := s.Client.Resource(changeRequestGVR).Namespace("kagent").Get(context.Background(), got.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, _, _ := unstructured.NestedString(u.Object, "status", "state")
+	if state != string(aegisv1.StatePending) {
+		t.Fatalf("status state=%q object=%v", state, u.Object["status"])
 	}
 }
 
