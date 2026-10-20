@@ -42,3 +42,5 @@
 
 - 设计出处：§4.2.5、§5.1/§5.2、ADR-003；依赖 M1 的 DecisionRecord/审计。
 - 风险：controller-gen 未在仓库内固化；若本任务手写 manifest，必须在 PR 描述标注并建 T2.1-followup 补生成链。
+
+- 2026-10-20：controller 接入 `Executor`；`--enable-writes` 才启用 ScaleExecutor（默认 fail-closed 只读）。实机 E2E：CR Pending + Deployment replicas=1 → controller 执行/验证 → replicas=2、CR Committed；R2 未审批不执行单测覆盖。

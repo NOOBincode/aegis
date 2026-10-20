@@ -15,9 +15,11 @@ import (
 
 	"github.com/spf13/pflag"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
+	"github.com/aegis-dev/aegis/internal/adapters/k8s"
 	"github.com/aegis-dev/aegis/internal/controller"
 )
 
@@ -32,6 +34,7 @@ func run() int {
 	logLevel := fs.String("log-level", "", "slog level: debug|info|warn|error（env AEGIS_LOG_LEVEL > 默认 info）")
 	kubeconfig := fs.String("kubeconfig", "", "kubeconfig 路径（空=in-cluster 或 KUBECONFIG）")
 	resync := fs.Duration("resync", 30*time.Second, "informer 全量重同步周期")
+	enableWrites := fs.Bool("enable-writes", false, "启用 ScaleExecutor 真实写（默认 fail-closed 只读核对）")
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return 2
 	}
@@ -63,7 +66,19 @@ func run() int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	mgr := &controller.Manager{Client: dc, Resync: *resync, Logger: logger}
+	rec := &controller.Reconciler{Client: dc}
+	if *enableWrites {
+		cs, err := kubernetes.NewForConfig(cfg)
+		if err != nil {
+			logger.Error("构造 clientset 失败", "error", err)
+			return 1
+		}
+		rec.Executor = k8s.NewScaleExecutor(cs)
+		logger.Warn("controller.writes_enabled", "executor", "scale")
+	} else {
+		logger.Info("controller.writes_disabled", "reason", "安全默认，--enable-writes 才执行 CR")
+	}
+	mgr := &controller.Manager{Client: dc, Reconciler: rec, Resync: *resync, Logger: logger}
 	if err := mgr.Run(ctx); err != nil {
 		logger.Error("controller 退出", "error", err)
 		return 1

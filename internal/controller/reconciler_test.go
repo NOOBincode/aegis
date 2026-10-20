@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -11,6 +12,7 @@ import (
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
 	aegisv1 "github.com/aegis-dev/aegis/api/v1alpha1"
+	"github.com/aegis-dev/aegis/internal/rollback"
 )
 
 func newFakeCR(state string, deleting bool) *unstructured.Unstructured {
@@ -22,7 +24,10 @@ func newFakeCR(state string, deleting bool) *unstructured.Unstructured {
 		},
 		"spec": map[string]any{
 			"sessionRef": "s", "idempotencyKey": "k", "intent": "i", "source": "agent",
-			"operations": []any{map[string]any{"tool": "scale_deployment", "riskLevel": "R1"}},
+			"operations": []any{map[string]any{
+				"tool": "scale_deployment", "riskLevel": "R1",
+				"args": map[string]any{"namespace": "shop", "name": "payments", "replicas": int64(2), "from_replicas": int64(1)},
+			}},
 		},
 	}
 	if state != "" {
@@ -100,5 +105,69 @@ func TestReconcileDeletion(t *testing.T) {
 	cr := getCR(t, r)
 	if containsString(cr.Finalizers, finalizer) {
 		t.Fatalf("终态删除应移除 finalizer：%+v", cr.Finalizers)
+	}
+}
+
+type fakeExec struct {
+	execErr   error
+	verifyErr error
+	executed  int
+	rolled    int
+}
+
+func (f *fakeExec) Execute(context.Context, rollback.Operation) error {
+	if f.execErr != nil {
+		return f.execErr
+	}
+	f.executed++
+	return nil
+}
+func (f *fakeExec) Verify(context.Context, rollback.Operation) error {
+	if f.verifyErr != nil {
+		return f.verifyErr
+	}
+	return nil
+}
+func (f *fakeExec) Rollback(context.Context, rollback.Operation) error {
+	f.rolled++
+	return nil
+}
+
+func TestReconcileExecutesPending(t *testing.T) {
+	r := newFake(t, newFakeCR("Pending", false))
+	f := &fakeExec{}
+	r.Executor = f
+	if err := r.Reconcile(context.Background(), "default", "cr-test"); err != nil {
+		t.Fatal(err)
+	}
+	cr := getCR(t, r)
+	if cr.Status.State != aegisv1.StateCommitted || cr.Status.ExecutedOps != 1 || f.executed != 1 {
+		t.Fatalf("state=%s executed=%d fake=%d", cr.Status.State, cr.Status.ExecutedOps, f.executed)
+	}
+}
+
+func TestReconcileRollbackOnVerifyFailure(t *testing.T) {
+	r := newFake(t, newFakeCR("Pending", false))
+	f := &fakeExec{verifyErr: errors.New("unhealthy")}
+	r.Executor = f
+	if err := r.Reconcile(context.Background(), "default", "cr-test"); err != nil {
+		t.Fatal(err)
+	}
+	cr := getCR(t, r)
+	if cr.Status.State != aegisv1.StateRolledBack || f.rolled != 1 {
+		t.Fatalf("state=%s rolled=%d", cr.Status.State, f.rolled)
+	}
+}
+
+func TestReconcileAwaitingApprovalDoesNotExecute(t *testing.T) {
+	r := newFake(t, newFakeCR("AwaitingApproval", false))
+	f := &fakeExec{}
+	r.Executor = f
+	if err := r.Reconcile(context.Background(), "default", "cr-test"); err != nil {
+		t.Fatal(err)
+	}
+	cr := getCR(t, r)
+	if cr.Status.State != aegisv1.StateAwaitingApproval || f.executed != 0 {
+		t.Fatalf("未审批不应执行：state=%s fake=%d", cr.Status.State, f.executed)
 	}
 }
