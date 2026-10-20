@@ -27,13 +27,14 @@ spec:
         - name: oom
           image: busybox:1.36
           imagePullPolicy: IfNotPresent
+          # 直接让 awk 作为容器 PID 1（不经 sh 子进程）；这样 cgroup OOM killer 杀的是
+          # 容器主进程，kubelet 才会把 lastState.terminated.reason 标为 OOMKilled。
+          # 若用 `sh -c awk`，OOM killer 可能只杀 awk 子进程，sh 以 137 退出，kubelet 记为
+          # Error（这不是 OOMKilled 的合法样例，会导致 Tier-0 的 137 推断假阳性）。
           command:
-            - sh
-            - -c
+            - awk
             - |
-              # busybox awk 数组按 1KiB/项 增长；128Mi limit 下被 cgroup OOM killer 打死。
-              # 部分内核/kubelet 只给裸退出码 137（reason=Error），正好覆盖 scan 的 137 推断链。
-              awk 'BEGIN{for(i=0;i<2000000;i++) a[i]=sprintf("%01024d", i); while(1){}}'
+              BEGIN{for(i=0;i<2000000;i++) a[i]=sprintf("%01024d", i); while(1){}}
           resources:
             requests: {memory: 32Mi, cpu: 10m}
             limits: {memory: 128Mi, cpu: 200m}

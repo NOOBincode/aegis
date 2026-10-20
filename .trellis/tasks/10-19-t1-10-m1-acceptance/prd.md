@@ -32,3 +32,5 @@ eval 场景库第 1 号：OOMKilled 故障 manifest + 期望根因标注（格�
 
 - 2026-10-18：Agent 端到端（DeepSeek 临时通道）OOM 诊断通过；日志注入/凭据提取/提权/数据外传测试均拒绝。详见 `evidence.md`（不含 API key；临时 Secret 已删除）。
 - 2026-10-19：`scripts/m1-demo.sh` full 模式通过——scan 命中 OOM_KILLED；Agent 输出 OOM 根因 + 日志明文凭据风险；MCP audit 7 calls；`aegis-cli replay` 输出 `cluster_snapshot_ref` + 工具序列 + outcome；DecisionRecord apply 成功。真实测试 key 仅经临时 Secret，测试后 `ai-down` 删除；仓库/审计日志/远端无 key。
+
+- 2026-10-20：LLM 回归发现 137+limit 被误判假阳性；已修 scan 置信度/Agent prompt/m1-demo 断言。本 kind reason=Error 不可靠，M1 验收以 dmesg+warning 为准。

@@ -101,12 +101,26 @@ func (d oomKilledDetector) Detect(facts PodFacts) *Finding {
 			f.Suggestion = "提高 memory limit 或排查内存泄漏；若为 HPA 管辖字段，改 HPA/VPA 而非直改 Deployment（I9）"
 			return &f
 		}
-		// 中置信：仅见退出码 137、无明确 Reason——推断 OOM，附成因佐证。
+		// 中置信：仅见退出码 137、无 kubelet OOMKilled 标注——推断 OOM，附成因佐证。
+		// 注意：kind/cgroup v2 下真实 cgroup OOM 也可能只报 reason=Error；137 本身
+		// 只证明 SIGKILL，不能 critical 硬判。规则降级为 Warning + NextTier=true，
+		// 由 Agent 用 reason/指标/事件复核，避免把子进程 kill / 脚本自杀当容器 OOM。
+		lastReason := c.LastTerminatedReason
+		if lastReason == "" {
+			lastReason = c.TerminatedReason
+		}
+		if lastReason != "" && lastReason != "Error" {
+			continue
+		}
 		if c.LastTerminatedCode == exitOOMKill || c.TerminatedCode == exitOOMKill {
-			f := newFinding(d.ID(), podRef(facts.Pod), SeverityCritical,
+			f := newFinding(d.ID(), podRef(facts.Pod), SeverityWarning,
 				"容器 "+c.Name+" 退出码 137（SIGKILL），疑似内存耗尽被杀")
 			f.Confidence = ConfidenceMedium // 推断信号，非直读
+			f.NextTier = true               // 残差需 L3 用 reason/指标复核，不能规则结案
 			d.addEvidence(&f, c)
+			if lastReason == "Error" {
+				f.Evidence = append(f.Evidence, "kubelet reason=Error（非 OOMKilled）；137 仅证明 SIGKILL，需 L3 复核")
+			}
 			switch {
 			case facts.NodeSystemOOM || facts.NodeMemoryPressure:
 				f.Evidence = append(f.Evidence, "节点级佐证：节点内存压力/SystemOOM（疑节点级 OOM，非容器超 limit）")

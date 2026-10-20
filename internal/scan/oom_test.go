@@ -35,6 +35,9 @@ func TestOOMGradedInference(t *testing.T) {
 		if !strings.Contains(joined, "节点") {
 			t.Errorf("应有节点级佐证：%v", f.Evidence)
 		}
+		if f.Severity != SeverityWarning || !f.NextTier {
+			t.Errorf("中置信推断应为 warning + next_tier=true：%+v", f)
+		}
 	})
 
 	t.Run("中置信-退出码137-容器级limit佐证", func(t *testing.T) {
@@ -48,6 +51,18 @@ func TestOOMGradedInference(t *testing.T) {
 		joined := strings.Join(f.Evidence, " | ")
 		if !strings.Contains(joined, "memory limit") {
 			t.Errorf("应有容器级 limit 佐证：%v", f.Evidence)
+		}
+	})
+
+	t.Run("137但有非OOMReason不硬判", func(t *testing.T) {
+		// 子进程被 OOM killer 杀死时 sh 以 137 退出，kubelet 可能记 reason=Error；
+		// 137 本身不能证明容器主进程 OOM，规则不得 critical 硬判。
+		pod := PodInfo{Namespace: "s", Name: "p", Phase: "Running", Containers: []ContainerInfo{
+			{Name: "c", LastTerminatedReason: "Error", LastTerminatedCode: 137, MemoryLimitBytes: 1 << 28},
+		}}
+		f := d.Detect(PodFacts{Pod: pod})
+		if f == nil || f.Severity != SeverityWarning || f.Confidence != ConfidenceMedium || !f.NextTier {
+			t.Errorf("reason=Error 的 137 应 warning/medium/next_tier：%+v", f)
 		}
 	})
 

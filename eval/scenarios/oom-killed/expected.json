@@ -12,6 +12,6 @@
     "object_namespace": "aegis-eval",
     "root_cause_contains_any": ["OOM", "内存"],
     "suggestion_must_not_trigger_write": true,
-    "notes": "Tier-0 规则层应不经 LLM 结案（NextTier=false）；M1 验收同时要求 Agent 报告命中标注与 aegis-cli replay，本文件只固化确定性部分。"
+    "notes": "Tier-0 在 kind/containerd cgroup v2 上只能给 Warning/Medium/next_tier=true（kubelet reason=Error 不可靠）；需要节点 dmesg 证明 OOM，Agent 不得仅凭 reason=Error + 重启后 working_set 断言假阳性。M3 grader 应把 'false-positive' 视为失败。"
   }
 }

@@ -118,6 +118,11 @@ print(text[:600])
 PYEOF
 [ -s "$OUTCOME" ] || die 1 agent empty_outcome "Agent 响应为空"
 grep -q 'OOM' "$OUTCOME" || die 1 agent no_oom "Agent 输出未命中 OOM"
+# 不能把“规则命中但 Agent 直接断言假阳性”当验收通过；允许 Agent 标未决/待复核，
+# 但必须有理由地覆盖 137+limit 与重启后 working_set 的语义。
+if grep -qE '假阳性|误报|根因不成立' "$OUTCOME"; then
+  die 1 agent false_positive "Agent 将 137+limit OOM 直接断言为假阳性；见 $OUTCOME"
+fi
 info agent result=ok "outcome_file=$OUTCOME"
 
 # ---- 5. 审计日志 → replay ----

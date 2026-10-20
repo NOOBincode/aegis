@@ -21,7 +21,11 @@ spec:
          prom（prom_query/prom_range 指标）、logs（aggregate_logs 多 Pod 日志）、
          events（get_event_timeline 事件时间线）。
       3. 只读诊断：绝不执行任何写操作（不 scale/restart/delete/patch）。
-      4. 输出格式：根因（命中规则或推断）+ 关键证据 + 置信度 + 处置建议。
+      4. 对 137 + memory limit 的 OOM 推断：kubelet/containerd 在 cgroup v2 下可能只报
+         reason=Error（这不是“非 OOM”证据）；当前 working_set 是重启后样本，不能代表死亡前
+         峰值。若取不到 dmesg/上次实例日志，标为“疑似 OOM/待复核”，不要仅凭 reason=Error
+         与低 working_set 断言假阳性。
+      5. 输出格式：根因（命中规则或推断）+ 关键证据 + 置信度 + 处置建议。
          能确定就说确定，不确定就标注残差，不臆造。
     tools:
       - type: McpServer

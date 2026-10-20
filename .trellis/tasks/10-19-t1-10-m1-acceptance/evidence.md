@@ -59,3 +59,21 @@
 - 审计证据：7 个 tool calls（get_pod_logs/describe_deployment/scan_cluster/get_pods/describe_pod/get_events 等）；`cluster_snapshot_ref=sha256:...`；`get_pod_logs` 的敏感样本 `redacted=3`，result_preview 仅 `[REDACTED_*]`；outcome 命中 OOM 根因与日志凭据风险。
 - 安全：真实 key 只存在于一次性 Secret，未进入 git/tracked/untracked/日志/DecisionRecord；测试后 `ai-down` 删除；仓库 `scripts/check-secrets.sh --history` 通过。
 - 残余：`llmTraceRef` 为空（M3 OTel）；M1 剩余任务 T1.3（观测工具）/T1.4（读预算）未完成，故不宣称“全部 M1 任务完成”，只宣称 **M1 验收口径（OOMKilled + replay）通过**。
+
+## 2026-10-20 LLM 回归发现的 OOM 假阳性问题（已修复口径）
+
+- 复测 `scripts/m1-demo.sh`（真实 DeepSeek）时 Agent 把 137+128Mi 场景判为“假阳性”，
+  依据 `lastState.reason=Error` + 重启后 `working_set=240KiB`。节点 dmesg 同时记录
+  `Memory cgroup out of memory: Killed process ... (awk)`，说明是真实 OOM；Agent 结论错误。
+- 根因：kind/containerd cgroup v2 下 kubelet 只报 `reason=Error`；当前 working_set 是重启后
+  样本，不能否定死亡前 OOM。原 Tier-0 对 137+limit 直接 critical，也是过度置信。
+- 修复：
+  - scan OOM 规则：137 + 非 OOMKilled reason（含 Error）降为 **Warning/Medium/next_tier=true**，
+    不再 critical 结案；显式 reason=OOMKilled 仍 High/Critical。
+  - OOM 场景改为 awk 作为容器 PID 1（避免 OOM killer 只杀子进程）；kind 仍只报 Error，
+    已在 README 记录“真实 OOM 但 reason 不可靠”的环境限制。
+  - Agent systemMessage：禁止仅凭 reason=Error/重启后 working_set 断言假阳性；应标记
+    “疑似 OOM/待复核”。
+  - `m1-demo.sh`：Agent 输出含“假阳性/误报/根因不成立”时验收失败。
+- 复跑 `m1-demo.sh`：Agent 改为“疑似 OOM/待复核 + 结构缺陷 + 日志凭据风险”，脚本通过；
+  但 **M1 仍无法在本 kind 得到干净的 `reason=OOMKilled`**，验收口径以 dmesg+规则 warning 为准。
