@@ -38,17 +38,29 @@ func newApproveCmd(approve bool) *cobra.Command {
 		endpoint string
 		note     string
 		actor    string
+		crFlag   string
 		timeout  time.Duration
 	)
 	cmd := &cobra.Command{
-		Use:   verb + " <namespace/name>",
+		Use:   verb + " [namespace/name]",
 		Short: "提交审批通过/拒绝意图（服务端状态机；CLI 不含判定逻辑）",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runApproval(cmd, args[0], approve, endpoint, note, actor, timeout)
+			cr := crFlag
+			if len(args) == 1 {
+				if cr != "" && cr != args[0] {
+					return fmt.Errorf("--cr 与位置参数冲突")
+				}
+				cr = args[0]
+			}
+			if cr == "" {
+				return fmt.Errorf("必须提供 CR：位置参数或 --cr namespace/name")
+			}
+			return runApproval(cmd, cr, approve, endpoint, note, actor, timeout)
 		},
 	}
 	cmd.Flags().StringVar(&endpoint, "endpoint", "", "gatekeeper 审批接口 URL（或用 AEGIS_APPROVAL_ENDPOINT）")
+	cmd.Flags().StringVar(&crFlag, "cr", "", "ChangeRequest namespace/name")
 	cmd.Flags().StringVar(&note, "note", "", "审批意见（可审计）")
 	cmd.Flags().StringVar(&actor, "actor", "", "操作者身份（默认 AEGIS_ACTOR；生产应来自 mTLS 服务端身份）")
 	cmd.Flags().DurationVar(&timeout, "timeout", 10*time.Second, "HTTP 超时")

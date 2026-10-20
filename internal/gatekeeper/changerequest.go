@@ -143,6 +143,8 @@ func (s *ChangeRequestService) Submit(ctx context.Context, req SubmitRequest) (S
 		return SubmitResult{}, fmt.Errorf("创建 ChangeRequest: %w", err)
 	}
 	// status 是 subresource：Create 时带的 status 会被 apiserver 忽略，必须显式 UpdateStatus。
+	// Create 返回对象可能丢 status；把期望 status 显式赋回再 UpdateStatus。
+	created.Object["status"] = obj["status"]
 	if _, err := s.Client.Resource(gvr).Namespace(cr.Namespace).UpdateStatus(ctx, created, metav1.UpdateOptions{}); err != nil {
 		return SubmitResult{}, fmt.Errorf("初始化 ChangeRequest status: %w", err)
 	}

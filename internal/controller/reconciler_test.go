@@ -159,6 +159,22 @@ func TestReconcileRollbackOnVerifyFailure(t *testing.T) {
 	}
 }
 
+func TestReconcilePendingButApprovalRequiredDoesNotExecute(t *testing.T) {
+	obj := newFakeCR("Pending", false)
+	spec, _ := obj.Object["spec"].(map[string]any)
+	spec["approval"] = map[string]any{"required": true}
+	r := newFake(t, obj)
+	f := &fakeExec{}
+	r.Executor = f
+	if err := r.Reconcile(context.Background(), "default", "cr-test"); err != nil {
+		t.Fatal(err)
+	}
+	cr := getCR(t, r)
+	if cr.Status.State != aegisv1.StateAwaitingApproval || f.executed != 0 {
+		t.Fatalf("审批 required 未 Approved 不得执行：state=%s executed=%d", cr.Status.State, f.executed)
+	}
+}
+
 func TestReconcileAwaitingApprovalDoesNotExecute(t *testing.T) {
 	r := newFake(t, newFakeCR("AwaitingApproval", false))
 	f := &fakeExec{}

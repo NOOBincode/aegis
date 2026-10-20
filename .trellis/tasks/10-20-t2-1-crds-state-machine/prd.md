@@ -46,3 +46,5 @@
 - 2026-10-20：controller 接入 `Executor`；`--enable-writes` 才启用 ScaleExecutor（默认 fail-closed 只读）。实机 E2E：CR Pending + Deployment replicas=1 → controller 执行/验证 → replicas=2、CR Committed；R2 未审批不执行单测覆盖。
 
 - 2026-10-20 全链路实测：gatekeeper MCP `request_change`（scale +1，R1 allow）→ CR Pending → controller（`--enable-writes`）→ ScaleExecutor → Deployment replicas 1→2 → CR `Committed`；随后清理。
+
+- 2026-10-20 R2 审批 E2E：request_change +2 → CR AwaitingApproval（确认未执行）→ CLI approve（bob）→ status Approved → controller 执行 → replicas 3、CR Committed。证明审批门禁无绕过；修复 CR 创建时 status 丢失与 CLI `--cr`。

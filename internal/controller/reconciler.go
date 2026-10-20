@@ -114,6 +114,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, namespace, name string) erro
 }
 
 func (r *Reconciler) execute(ctx context.Context, gvr schema.GroupVersionResource, cr *aegisv1.ChangeRequest) error {
+	// 防御性：即使调用方/状态被错误初始化为 Pending，审批 required 且未 Approved 也绝不执行。
+	if cr.Spec.Approval.Required && cr.Status.Approval.State != "Approved" {
+		cr.Status.State = aegisv1.StateAwaitingApproval
+		setCondition(cr, "ApprovalRequired", metav1.ConditionFalse, "AwaitingApproval", "审批未通过，拒绝执行")
+		return r.updateStatus(ctx, gvr, cr)
+	}
 	if r.Executor == nil {
 		setCondition(cr, "ExecutorNotWired", metav1.ConditionFalse, "SafetyDefault", "Executor 未接线，拒绝执行写操作")
 		cr.Status.ObservedGeneration = cr.Generation

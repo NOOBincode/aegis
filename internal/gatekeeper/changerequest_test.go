@@ -74,4 +74,12 @@ func TestSubmitR2AwaitingApproval(t *testing.T) {
 	if err != nil || !got.Created || !got.Decision.RequiresApproval {
 		t.Fatalf("R2 应落 AwaitingApproval：%+v err=%v", got, err)
 	}
+	u, err := s.Client.Resource(changeRequestGVR).Namespace("kagent").Get(context.Background(), got.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, _, _ := unstructured.NestedString(u.Object, "status", "state")
+	if state != string(aegisv1.StateAwaitingApproval) {
+		t.Fatalf("R2 status state=%q want AwaitingApproval", state)
+	}
 }
