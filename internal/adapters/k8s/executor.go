@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -75,10 +76,10 @@ func scaleArgs(op rollback.Operation) (string, string, int32, error) {
 		return "", "", 0, fmt.Errorf("scale 缺 namespace/name")
 	}
 	replicas, ok := intArg(op.Args, "replicas")
-	if !ok || replicas < 0 {
-		return "", "", 0, fmt.Errorf("scale 缺合法 replicas")
+	if !ok || replicas < 0 || replicas > math.MaxInt32 {
+		return "", "", 0, fmt.Errorf("scale 缺合法 replicas（0..MaxInt32）")
 	}
-	return ns, name, int32(replicas), nil
+	return ns, name, int32(replicas), nil //nolint:gosec // 已校验 0..MaxInt32
 }
 
 func intArg(args map[string]any, key string) (int, bool) {
