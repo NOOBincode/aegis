@@ -23,7 +23,8 @@ allow/requires-approval/reject，R3 即使有审批也拒绝；执行/代理/网
 - [x] 组合单测通过；lint 0。
 - [x] `Service.Apply` 执行/验证/回滚编排通过 fake executor 单测；未审批不执行。
 - [x] `gatekeeper.Service.Apply` 执行闭环：只有 Allow 才调 Executor；执行/验证失败逆序回滚；executor 未接线 fail-closed；fake executor 单测通过。
-- [ ] 真实 k8s-write adapter/MCP 代理/mTLS 接入（后续）。
+- [x] 真实 `ScaleExecutor`（k8s apps client）：dry-run → merge patch → Verify replicas → Rollback；fake clientset 单测通过。
+- [ ] MCP 代理/mTLS/其他写工具 adapter（后续）。
 
 ## Notes
 
