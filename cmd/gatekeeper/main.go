@@ -37,6 +37,7 @@ func run() int {
 	fs := pflag.NewFlagSet(processName, pflag.ContinueOnError)
 	logLevel := fs.String("log-level", "", "slog level: debug|info|warn|error（env AEGIS_LOG_LEVEL > 默认 info）")
 	approvalAddr := fs.String("approval-addr", "", "审批 HTTP 监听地址 host:port（env AEGIS_APPROVAL_ADDR > :8085）")
+	mcpAddr := fs.String("mcp-addr", "", "gatekeeper MCP 监听地址 host:port（env AEGIS_GATE_MCP_ADDR > :8086）")
 	kubeconfig := fs.String("kubeconfig", "", "kubeconfig 路径（空=in-cluster 或 KUBECONFIG）")
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return 2
@@ -60,6 +61,11 @@ func run() int {
 	addr := firstNonEmpty(*approvalAddr, os.Getenv("AEGIS_APPROVAL_ADDR"), ":8085")
 	if _, _, err := net.SplitHostPort(addr); err != nil {
 		logger.Error("非法 approval-addr", "addr", addr, "error", err)
+		return 2
+	}
+	gateAddr := firstNonEmpty(*mcpAddr, os.Getenv("AEGIS_GATE_MCP_ADDR"), ":8086")
+	if _, _, err := net.SplitHostPort(gateAddr); err != nil {
+		logger.Error("非法 mcp-addr", "addr", gateAddr, "error", err)
 		return 2
 	}
 	secretRaw := os.Getenv("AEGIS_APPROVAL_SECRET")
@@ -101,11 +107,26 @@ func run() int {
 		_ = srv.Shutdown(shutdownCtx)
 	}()
 	logger.Info("gatekeeper 审批接口启动", "addr", addr)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		logger.Error("审批接口退出", "error", err)
+	errCh := make(chan error, 2)
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errCh <- err
+		}
+	}()
+	gateMCP := newGatekeeperMCPServer(dc, logger)
+	go func() {
+		logger.Info("gatekeeper MCP 接口启动", "addr", gateAddr)
+		if err := gateMCP.ServeHTTP(gateAddr); err != nil {
+			errCh <- err
+		}
+	}()
+	select {
+	case <-ctx.Done():
+		return 0
+	case err := <-errCh:
+		logger.Error("gatekeeper 服务退出", "error", err)
 		return 1
 	}
-	return 0
 }
 
 func decodeSecret(raw string) ([]byte, error) {
