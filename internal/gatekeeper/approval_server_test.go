@@ -30,7 +30,7 @@ func crObject(state string) *unstructured.Unstructured {
 	}}
 }
 
-func approvalFixture(t *testing.T, state string) (*ApprovalServer, []byte, string) {
+func approvalFixture(t *testing.T, state string) (*ApprovalServer, string) {
 	t.Helper()
 	secret := []byte("0123456789abcdef0123456789abcdef")
 	signer, _ := session.NewSigner(secret, time.Minute)
@@ -42,7 +42,7 @@ func approvalFixture(t *testing.T, state string) (*ApprovalServer, []byte, strin
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &ApprovalServer{Client: dc, Verifier: verifier, GVR: changeRequestGVR, Now: func() time.Time { return time.Unix(100, 0) }}, secret, token
+	return &ApprovalServer{Client: dc, Verifier: verifier, GVR: changeRequestGVR, Now: func() time.Time { return time.Unix(100, 0) }}, token
 }
 
 func mustJSON(t *testing.T, v any) []byte {
@@ -55,7 +55,7 @@ func mustJSON(t *testing.T, v any) []byte {
 }
 
 func TestApprovalServerApproves(t *testing.T) {
-	srv, _, token := approvalFixture(t, "AwaitingApproval")
+	srv, token := approvalFixture(t, "AwaitingApproval")
 	body, _ := json.Marshal(map[string]string{"envelope": token})
 	req := httptest.NewRequest(http.MethodPost, "/v1/approval", bytes.NewReader(body))
 	w := httptest.NewRecorder()
@@ -92,7 +92,7 @@ func TestApprovalServerRejectsSelfApproval(t *testing.T) {
 }
 
 func TestApprovalServerWrongState(t *testing.T) {
-	srv, _, token := approvalFixture(t, "Executing")
+	srv, token := approvalFixture(t, "Executing")
 	body, _ := json.Marshal(map[string]string{"envelope": token})
 	req := httptest.NewRequest(http.MethodPost, "/v1/approval", bytes.NewReader(body))
 	w := httptest.NewRecorder()
