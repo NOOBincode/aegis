@@ -90,13 +90,13 @@ func runApproval(cmd *cobra.Command, cr string, approve bool, endpoint, note, ac
 		return err
 	}
 	body, _ := json.Marshal(map[string]string{"envelope": token})
-	req, err := http.NewRequestWithContext(cmd.Context(), http.MethodPost, endpoint, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(cmd.Context(), http.MethodPost, endpoint, bytes.NewReader(body)) //nolint:gosec // CLI 显式用户指定审批端点
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	client := &http.Client{Timeout: timeout}
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec // 同上：用户显式 endpoint；非服务端出站
 	if err != nil {
 		return fmt.Errorf("提交审批失败: %w", err)
 	}
