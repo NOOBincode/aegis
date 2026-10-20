@@ -1,0 +1,27 @@
+# T2.4 CLI approve/deny
+
+## Goal
+
+CLI 只提交带 HMAC 信封的人审意图，不实现审批状态机、不写 CR status、不提供 `--yes`
+绕过；审批合法性/身份绑定/终判在服务端（R16/R1）。
+
+## Requirements
+
+1. `aegis-cli approve <ns/name>` / `deny <ns/name>`；`--note` 可审计。
+2. `AEGIS_APPROVAL_SECRET` 为 ≥16 字节 base64 密钥；信封经 `internal/session.Signer` 签名。
+3. `--endpoint`/`AEGIS_APPROVAL_ENDPOINT` 必填，http(s) 校验；超时限制。
+4. actor 必须显式注入（`--actor`/`AEGIS_ACTOR`）；无 actor 拒绝；CLI 不猜身份。
+5. CLI 不包含放行/拒绝判定，也不直接写 K8s；只 POST 签名信封。
+6. httptest 验证服务器能解信封、payload 正确；缺 secret 明确失败。
+
+## Acceptance Criteria
+
+- [x] CLI approve/deny + HMAC 信封 + http(s) endpoint + actor 必填。
+- [x] CLI 无 `--yes`/本地判定；缺 secret 拒绝。
+- [x] httptest 校验签名与 payload；lint 0。
+- [ ] gatekeeper 审批 HTTP 接口（验签→approval.Decide→写 status.approval）与 mTLS 身份。
+- [ ] CLI 与真实服务端端到端。
+
+## Notes
+
+- 设计出处：§4.2.1 R1、R16；本任务先做安全客户端契约。

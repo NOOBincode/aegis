@@ -29,7 +29,8 @@
     "10-20-t2-9-authority-attributor",
     "10-20-t2-11-signed-envelope",
     "10-20-t2-12-redteam-checkpoint",
-    "10-20-t2-10-gitops-pr"
+    "10-20-t2-10-gitops-pr",
+    "10-20-t2-4-cli-approval"
   ],
   "parent": null,
   "relatedFiles": [],
