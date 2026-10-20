@@ -27,7 +27,8 @@
     "10-20-t2-8-gatekeeper-decision",
     "10-20-t2-6-circuit-breaker",
     "10-20-t2-9-authority-attributor",
-    "10-20-t2-11-signed-envelope"
+    "10-20-t2-11-signed-envelope",
+    "10-20-t2-12-redteam-checkpoint"
   ],
   "parent": null,
   "relatedFiles": [],
