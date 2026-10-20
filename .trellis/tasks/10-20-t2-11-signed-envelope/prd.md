@@ -23,3 +23,12 @@ mTLS 由部署层（证书仅签 gatekeeper）另行强制，二者不互相替�
 ## Notes
 
 - 设计出处：§4.2.5-4、F15；HMAC 是软件层，mTLS 是传输层。
+
+## mTLS 实施（2026-10-20）
+
+- `scripts/gen-mtls.sh` 生成本地 CA/server/client 到 `.cache/mtls`（gitignore，私钥 0600）。
+- gatekeeper：`--tls-cert/--tls-key/--tls-ca`；`ClientAuth=RequireAndVerifyClientCert`；
+  `ApprovalServer.ActorFromCert=true`，actor 强制取客户端证书 CN，payload actor 必须一致。
+- CLI：`--tls-ca/--tls-cert/--tls-key/--tls-server-name`；缺任一证书文件直接拒绝。
+- 实测：无证书/actor 不匹配/自批均拒绝；Bob 发起的 R2 由 Alice 证书审批通过，
+  `status.approval=Approved`。
