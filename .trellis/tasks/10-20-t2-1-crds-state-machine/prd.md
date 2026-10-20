@@ -25,7 +25,7 @@
 - [x] 状态迁移表单测全绿；非法迁移不落 status（表驱动 + abort/终态/非法状态用例）。
 - [ ] 同一 idempotencyKey 重复提交只生成一个 CR、不触发第二次执行（`CRNameFromKey` 纯函数与单测已落；缺 API/controller 的端到端）。
 - [x] controller-lite reconcile 已落：finalizer/初始化/在途仅留“核对实际状态”条件/终态删除清理；fake dynamic client 单测通过。
-- [x] `make lint` 逐 module 0 issues；状态机 + reconciler 单测通过；controller-runtime/envtest 未接入。
+- [x] `make lint` 逐 module 0 issues；状态机 + reconciler 单测通过；controller-lite 进程可运行；controller-runtime/envtest 未接入。
 - [ ] CI 增加 CRD generate-diff 门禁（M2 内完成；当前手写 manifest 已在 README 标注过渡）。
 
 ## Evidence

@@ -1,19 +1,24 @@
 // Package main 是 aegis CRD controller 的装配入口。
 //
-// Phase 0 占位骨架：启动期要素（flag → 配置 → slog）与 gatekeeper 同构，
-// 差异仅在第 ⑦ 步装配对象（reconcile manager + leader election，M2 T2.1 接入）。
-//
-// 设计出处：cmd/README.md §4；cmd/controller/README.md。
+// M2 T2.1：controller-lite 用 client-go dynamic informer + internal/controller.Reconciler；
+// 不做 leader election/controller-runtime（后续替换，Reconciler 语义不变）。
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
-	"net"
 	"os"
-	"strings"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/spf13/pflag"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+
+	"github.com/aegis-dev/aegis/internal/controller"
 )
 
 const processName = "controller"
@@ -25,16 +30,14 @@ func main() {
 func run() int {
 	fs := pflag.NewFlagSet(processName, pflag.ContinueOnError)
 	logLevel := fs.String("log-level", "", "slog level: debug|info|warn|error（env AEGIS_LOG_LEVEL > 默认 info）")
-	metricsAddr := fs.String("metrics-addr", "", "metrics listen 地址 host:port（env AEGIS_METRICS_ADDR > 默认 :8081）")
+	kubeconfig := fs.String("kubeconfig", "", "kubeconfig 路径（空=in-cluster 或 KUBECONFIG）")
+	resync := fs.Duration("resync", 30*time.Second, "informer 全量重同步周期")
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return 2
 	}
-
 	level := firstNonEmpty(*logLevel, os.Getenv("AEGIS_LOG_LEVEL"), "info")
-	addr := firstNonEmpty(*metricsAddr, os.Getenv("AEGIS_METRICS_ADDR"), ":8081")
-
 	var lvl slog.Level
-	switch strings.ToLower(level) {
+	switch level {
 	case "debug":
 		lvl = slog.LevelDebug
 	case "info":
@@ -44,24 +47,41 @@ func run() int {
 	case "error":
 		lvl = slog.LevelError
 	default:
-		fmt.Fprintf(os.Stderr, "invalid --log-level %q: want debug|info|warn|error\n", level)
-		return 2
-	}
-	if _, _, err := net.SplitHostPort(addr); err != nil {
-		fmt.Fprintf(os.Stderr, "invalid --metrics-addr %q: %v\n", addr, err)
+		fmt.Fprintf(os.Stderr, "invalid --log-level %q\n", level)
 		return 2
 	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: lvl}))
-
-	// 装配对象（manager、cache、reconcile 接线）随 M2（T2.1）填充；
-	// controller-runtime 的 healthz/readyz 挂载与 leader election 同任务接入。
-	logger.Info("bootstrap complete (phase0 skeleton)",
-		"process", processName,
-		"config_source", "flag>env>default",
-		"metrics_addr", addr,
-		"exit_code", 0,
-	)
+	cfg, err := restConfig(*kubeconfig)
+	if err != nil {
+		logger.Error("加载 kubeconfig 失败", "error", err)
+		return 2
+	}
+	dc, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		logger.Error("构造 dynamic client 失败", "error", err)
+		return 1
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	mgr := &controller.Manager{Client: dc, Resync: *resync, Logger: logger}
+	if err := mgr.Run(ctx); err != nil {
+		logger.Error("controller 退出", "error", err)
+		return 1
+	}
 	return 0
+}
+
+func restConfig(kubeconfig string) (*rest.Config, error) {
+	if kubeconfig != "" {
+		return clientcmd.BuildConfigFromFlags("", kubeconfig)
+	}
+	if os.Getenv("KUBERNETES_SERVICE_HOST") != "" {
+		return rest.InClusterConfig()
+	}
+	if kc := os.Getenv("KUBECONFIG"); kc != "" {
+		return clientcmd.BuildConfigFromFlags("", kc)
+	}
+	return rest.InClusterConfig()
 }
 
 func firstNonEmpty(vs ...string) string {
