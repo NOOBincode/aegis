@@ -3,9 +3,11 @@ package k8s
 import (
 	"context"
 	"testing"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
@@ -38,3 +40,24 @@ func TestBuildGraphHPA(t *testing.T) {
 }
 
 func int32Ptr(i int32) *int32 { return &i }
+
+func TestAuthorityEvents(t *testing.T) {
+	now := metav1.Now()
+	ev := &corev1.Event{
+		ObjectMeta:     metav1.ObjectMeta{Name: "hpa-rescale", Namespace: "shop"},
+		InvolvedObject: corev1.ObjectReference{Kind: "Deployment", Name: "payments", Namespace: "shop"},
+		Source:         corev1.EventSource{Component: "horizontal-pod-autoscaler"},
+		Reason:         "SuccessfulRescale",
+		Message:        "New size: 4; reason: cpu",
+		LastTimestamp:  now,
+	}
+	cs := fake.NewSimpleClientset(ev)
+	p := NewAuthorityProvider(cs)
+	evs, err := p.Events(context.Background(), authority.FieldRef{Kind: "Deployment", Namespace: "shop", Name: "payments", Field: "spec.replicas"}, now.Time.Add(-time.Minute), now.Time.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 1 || evs[0].Controller != "hpa" || evs[0].Direction != "increase" {
+		t.Fatalf("evs=%+v", evs)
+	}
+}

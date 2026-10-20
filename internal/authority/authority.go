@@ -238,25 +238,31 @@ func Attribute(ch Change, owners []Owner, evidence []Evidence, window time.Durat
 		}
 		relevant++
 		controller = e.Controller
-		if e.Direction == "" || ch.Direction == "" || strings.EqualFold(e.Direction, ch.Direction) {
-			// 幅度缺失视为部分证据；幅度差 > max(1, 20%) 视为 mismatch。
-			if ch.Magnitude > 0 && e.Magnitude > 0 {
-				diff := ch.Magnitude - e.Magnitude
-				if diff < 0 {
-					diff = -diff
-				}
-				threshold := ch.Magnitude / 5
-				if threshold < 1 {
-					threshold = 1
-				}
-				if diff > threshold {
-					mismatch++
-					continue
-				}
-			}
-			return Attribution{Verdict: VerdictAttributed, Controller: controller, Reasons: []string{"变化落在 owner 动作窗口且方向/幅度一致"}}
+		if e.Direction == "" || ch.Direction == "" {
+			// 方向缺失不足以硬归因；降到 partial。
+			mismatch++
+			continue
 		}
-		mismatch++
+		if !strings.EqualFold(e.Direction, ch.Direction) {
+			mismatch++
+			continue
+		}
+		// 幅度差 > max(1, 20%) 视为 mismatch；缺失幅度（0）不阻断。
+		if ch.Magnitude > 0 && e.Magnitude > 0 {
+			diff := ch.Magnitude - e.Magnitude
+			if diff < 0 {
+				diff = -diff
+			}
+			threshold := ch.Magnitude / 5
+			if threshold < 1 {
+				threshold = 1
+			}
+			if diff > threshold {
+				mismatch++
+				continue
+			}
+		}
+		return Attribution{Verdict: VerdictAttributed, Controller: controller, Reasons: []string{"变化落在 owner 动作窗口且方向/幅度一致"}}
 	}
 	if relevant > 0 {
 		return Attribution{Verdict: VerdictPartial, Controller: controller, Reasons: []string{fmt.Sprintf("有 %d 条 owner 证据但 %d 条不吻合", relevant, mismatch)}}
