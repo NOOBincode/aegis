@@ -25,10 +25,11 @@ var changeRequestGVR = schema.GroupVersionResource{Group: "aegis.dev", Version: 
 // 安全边界：只接受 HMAC 信封；actor 来自信封（mTLS 身份绑定后续）；审批终判调用
 // approval.Decide；只写 status.approval；CLI 不持有判定逻辑。
 type ApprovalServer struct {
-	Client   dynamic.Interface
-	Verifier *session.Verifier
-	Now      func() time.Time
-	GVR      schema.GroupVersionResource
+	Client        dynamic.Interface
+	Verifier      *session.Verifier
+	Now           func() time.Time
+	GVR           schema.GroupVersionResource
+	ActorFromCert bool // true 时强制用 mTLS 客户端证书 CN，忽略/校验 payload actor
 }
 
 type approvalEnvelopePayload struct {
@@ -74,7 +75,20 @@ func (s *ApprovalServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"message": "cr must be namespace/name"})
 		return
 	}
-	if strings.TrimSpace(payload.Actor) == "" {
+	actor := strings.TrimSpace(payload.Actor)
+	if s.ActorFromCert {
+		certActor := peerActor(r)
+		if certActor == "" {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "mTLS client certificate required"})
+			return
+		}
+		if actor != "" && actor != certActor {
+			writeJSON(w, http.StatusForbidden, map[string]string{"message": "actor does not match client certificate"})
+			return
+		}
+		actor = certActor
+	}
+	if actor == "" {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "actor missing"})
 		return
 	}
@@ -115,7 +129,7 @@ func (s *ApprovalServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		now = s.Now()
 	}
 	req := approval.Request{ID: cr.Name, Requester: cr.Spec.RequestedBy, Required: true, State: approval.StatePending}
-	decided, err := approval.Decide(req, payload.Actor, payload.Approve, now)
+	decided, err := approval.Decide(req, actor, payload.Approve, now)
 	if err != nil {
 		status := http.StatusForbidden
 		if err == approval.ErrNotRequired {
@@ -138,6 +152,13 @@ func (s *ApprovalServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"state": string(decided.State), "approver": decided.Approver, "message": payload.Note})
+}
+
+func peerActor(r *http.Request) string {
+	if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(r.TLS.PeerCertificates[0].Subject.CommonName)
 }
 
 func splitCR(cr string) (string, string, bool) {

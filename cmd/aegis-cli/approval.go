@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -29,6 +31,10 @@ type approvalPayload struct {
 	Actor   string `json:"actor"`
 }
 
+type approvalClientTLS struct {
+	CA, Cert, Key, ServerName string
+}
+
 func newApproveCmd(approve bool) *cobra.Command {
 	verb := "approve"
 	if !approve {
@@ -40,6 +46,7 @@ func newApproveCmd(approve bool) *cobra.Command {
 		actor    string
 		crFlag   string
 		timeout  time.Duration
+		mtls     approvalClientTLS
 	)
 	cmd := &cobra.Command{
 		Use:   verb + " [namespace/name]",
@@ -56,7 +63,7 @@ func newApproveCmd(approve bool) *cobra.Command {
 			if cr == "" {
 				return fmt.Errorf("必须提供 CR：位置参数或 --cr namespace/name")
 			}
-			return runApproval(cmd, cr, approve, endpoint, note, actor, timeout)
+			return runApprovalWithTLS(cmd, cr, approve, endpoint, note, actor, timeout, mtls)
 		},
 	}
 	cmd.Flags().StringVar(&endpoint, "endpoint", "", "gatekeeper 审批接口 URL（或用 AEGIS_APPROVAL_ENDPOINT）")
@@ -64,10 +71,18 @@ func newApproveCmd(approve bool) *cobra.Command {
 	cmd.Flags().StringVar(&note, "note", "", "审批意见（可审计）")
 	cmd.Flags().StringVar(&actor, "actor", "", "操作者身份（默认 AEGIS_ACTOR；生产应来自 mTLS 服务端身份）")
 	cmd.Flags().DurationVar(&timeout, "timeout", 10*time.Second, "HTTP 超时")
+	cmd.Flags().StringVar(&mtls.CA, "tls-ca", "", "mTLS CA 文件")
+	cmd.Flags().StringVar(&mtls.Cert, "tls-cert", "", "mTLS 客户端证书")
+	cmd.Flags().StringVar(&mtls.Key, "tls-key", "", "mTLS 客户端私钥")
+	cmd.Flags().StringVar(&mtls.ServerName, "tls-server-name", "", "TLS 校验用 server name")
 	return cmd
 }
 
 func runApproval(cmd *cobra.Command, cr string, approve bool, endpoint, note, actor string, timeout time.Duration) error {
+	return runApprovalWithTLS(cmd, cr, approve, endpoint, note, actor, timeout, approvalClientTLS{})
+}
+
+func runApprovalWithTLS(cmd *cobra.Command, cr string, approve bool, endpoint, note, actor string, timeout time.Duration, mtls approvalClientTLS) error {
 	if !strings.Contains(cr, "/") {
 		return fmt.Errorf("CR 必须为 namespace/name")
 	}
@@ -107,7 +122,10 @@ func runApproval(cmd *cobra.Command, cr string, approve bool, endpoint, note, ac
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{Timeout: timeout}
+	client, err := approvalHTTPClient(endpoint, timeout, mtls)
+	if err != nil {
+		return err
+	}
 	resp, err := client.Do(req) //nolint:gosec // 同上：用户显式 endpoint；非服务端出站
 	if err != nil {
 		return fmt.Errorf("提交审批失败: %w", err)
@@ -127,6 +145,34 @@ func runApproval(cmd *cobra.Command, cr string, approve bool, endpoint, note, ac
 	}
 	_, err = fmt.Fprintf(cmd.OutOrStdout(), "state=%s approver=%s message=%s\n", out.State, out.Approver, out.Message)
 	return err
+}
+
+func approvalHTTPClient(endpoint string, timeout time.Duration, mtls approvalClientTLS) (*http.Client, error) {
+	if mtls.CA == "" && mtls.Cert == "" && mtls.Key == "" {
+		return &http.Client{Timeout: timeout}, nil
+	}
+	if mtls.CA == "" || mtls.Cert == "" || mtls.Key == "" {
+		return nil, fmt.Errorf("mTLS 需要同时提供 --tls-ca/--tls-cert/--tls-key")
+	}
+	if !strings.HasPrefix(endpoint, "https://") {
+		return nil, fmt.Errorf("使用 mTLS 时 endpoint 必须为 https://")
+	}
+	caPEM, err := os.ReadFile(mtls.CA) //nolint:gosec // CLI 显式证书路径
+	if err != nil {
+		return nil, fmt.Errorf("读取 CA: %w", err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(caPEM) {
+		return nil, fmt.Errorf("CA 无有效证书")
+	}
+	cert, err := tls.LoadX509KeyPair(mtls.Cert, mtls.Key)
+	if err != nil {
+		return nil, fmt.Errorf("加载客户端证书: %w", err)
+	}
+	tr := &http.Transport{TLSClientConfig: &tls.Config{
+		MinVersion: tls.VersionTLS12, RootCAs: pool, Certificates: []tls.Certificate{cert}, ServerName: mtls.ServerName,
+	}}
+	return &http.Client{Timeout: timeout, Transport: tr}, nil
 }
 
 func approvalSecret() ([]byte, error) {

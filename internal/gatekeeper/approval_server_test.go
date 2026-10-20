@@ -2,6 +2,9 @@ package gatekeeper
 
 import (
 	"bytes"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -99,5 +102,30 @@ func TestApprovalServerWrongState(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	if w.Code != http.StatusConflict {
 		t.Fatalf("wrong state code=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestApprovalServerRequiresCertActorWhenConfigured(t *testing.T) {
+	srv, token := approvalFixture(t, "AwaitingApproval")
+	srv.ActorFromCert = true
+	body, _ := json.Marshal(map[string]string{"envelope": token})
+	req := httptest.NewRequest(http.MethodPost, "/v1/approval", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("无客户端证书应 401，得到 %d：%s", w.Code, w.Body.String())
+	}
+}
+
+func TestApprovalServerRejectsActorCertMismatch(t *testing.T) {
+	srv, token := approvalFixture(t, "AwaitingApproval")
+	srv.ActorFromCert = true
+	body, _ := json.Marshal(map[string]string{"envelope": token})
+	req := httptest.NewRequest(http.MethodPost, "/v1/approval", bytes.NewReader(body))
+	req.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{{Subject: pkix.Name{CommonName: "carol"}}}}
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("payload actor bob vs cert carol 应 403，得到 %d：%s", w.Code, w.Body.String())
 	}
 }

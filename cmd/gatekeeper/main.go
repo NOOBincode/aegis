@@ -7,6 +7,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"fmt"
 	"log/slog"
@@ -38,6 +40,10 @@ func run() int {
 	logLevel := fs.String("log-level", "", "slog level: debug|info|warn|error（env AEGIS_LOG_LEVEL > 默认 info）")
 	approvalAddr := fs.String("approval-addr", "", "审批 HTTP 监听地址 host:port（env AEGIS_APPROVAL_ADDR > :8085）")
 	mcpAddr := fs.String("mcp-addr", "", "gatekeeper MCP 监听地址 host:port（env AEGIS_GATE_MCP_ADDR > :8086）")
+	tlsCert := fs.String("tls-cert", "", "审批 HTTPS 证书（env AEGIS_TLS_CERT）")
+	tlsKey := fs.String("tls-key", "", "审批 HTTPS 私钥（env AEGIS_TLS_KEY）")
+	tlsCA := fs.String("tls-ca", "", "mTLS 客户端 CA（env AEGIS_TLS_CA）")
+	requireClientCert := fs.Bool("require-client-cert", true, "要求并校验 mTLS 客户端证书")
 	kubeconfig := fs.String("kubeconfig", "", "kubeconfig 路径（空=in-cluster 或 KUBECONFIG）")
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return 2
@@ -93,11 +99,44 @@ func run() int {
 		logger.Error("构造 dynamic client 失败", "error", err)
 		return 1
 	}
-	handler := &gatekeeper.ApprovalServer{Client: dc, Verifier: verifier}
+	certFile := firstNonEmpty(*tlsCert, os.Getenv("AEGIS_TLS_CERT"))
+	keyFile := firstNonEmpty(*tlsKey, os.Getenv("AEGIS_TLS_KEY"))
+	caFile := firstNonEmpty(*tlsCA, os.Getenv("AEGIS_TLS_CA"))
+	tlsEnabled := certFile != "" || keyFile != "" || caFile != ""
+	var tlsConfig *tls.Config
+	actorFromCert := false
+	if tlsEnabled {
+		if certFile == "" || keyFile == "" {
+			logger.Error("TLS 需要同时配置 cert/key")
+			return 2
+		}
+		tlsConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+		if caFile != "" {
+			pem, err := os.ReadFile(caFile) //nolint:gosec // 运维显式配置的 CA 路径
+			if err != nil {
+				logger.Error("读取 mTLS CA 失败", "error", err)
+				return 2
+			}
+			pool := x509.NewCertPool()
+			if !pool.AppendCertsFromPEM(pem) {
+				logger.Error("mTLS CA 无有效证书", "file", caFile)
+				return 2
+			}
+			tlsConfig.ClientCAs = pool
+			if *requireClientCert {
+				tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
+				actorFromCert = true
+			}
+		} else if *requireClientCert {
+			logger.Error("require-client-cert 需要 --tls-ca")
+			return 2
+		}
+	}
+	handler := &gatekeeper.ApprovalServer{Client: dc, Verifier: verifier, ActorFromCert: actorFromCert}
 	mux := http.NewServeMux()
 	mux.Handle("/v1/approval", handler)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
-	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second, TLSConfig: tlsConfig}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	go func() {
@@ -109,7 +148,14 @@ func run() int {
 	logger.Info("gatekeeper 审批接口启动", "addr", addr)
 	errCh := make(chan error, 2)
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		var err error
+		if tlsEnabled {
+			logger.Info("gatekeeper 审批 mTLS 启动", "addr", addr, "client_cert", actorFromCert)
+			err = srv.ListenAndServeTLS(certFile, keyFile)
+		} else {
+			err = srv.ListenAndServe()
+		}
+		if err != nil && err != http.ErrServerClosed {
 			errCh <- err
 		}
 	}()
