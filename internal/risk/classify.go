@@ -221,6 +221,9 @@ func scaleDelta(args map[string]any) int {
 		}
 	}
 	from, ok1 := toInt(args["replicas_from"])
+	if !ok1 {
+		from, ok1 = toInt(args["from_replicas"])
+	}
 	to, ok2 := toInt(args["replicas"])
 	if ok1 && ok2 {
 		return to - from
