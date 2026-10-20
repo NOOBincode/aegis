@@ -19,7 +19,8 @@
 
 - [x] 纯领域对抗集全部通过。
 - [x] 覆盖审批/风险/策略/闸门/信封/注入六类。
-- [ ] 网络层/MCP 重放/自写客户端/真实审批接口红队（T2.8/T2.11）。
+- [x] `scripts/redteam-netpol.sh` 实机验证 5 个 MCP server：default→000 阻断、kagent→200 放行。
+- [ ] MCP 重放/自写客户端/真实审批接口红队（T2.8/T2.11）。
 - [ ] M2 三连演示与 held-out eval（M3）。
 
 ## Notes
