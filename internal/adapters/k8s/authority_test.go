@@ -53,7 +53,7 @@ func TestAuthorityEvents(t *testing.T) {
 	}
 	cs := fake.NewSimpleClientset(ev)
 	p := NewAuthorityProvider(cs)
-	evs, err := p.Events(context.Background(), authority.FieldRef{Kind: "Deployment", Namespace: "shop", Name: "payments", Field: "spec.replicas"}, now.Time.Add(-time.Minute), now.Time.Add(time.Minute))
+	evs, err := p.Events(context.Background(), authority.FieldRef{Kind: "Deployment", Namespace: "shop", Name: "payments", Field: "spec.replicas"}, now.Add(-time.Minute), now.Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
