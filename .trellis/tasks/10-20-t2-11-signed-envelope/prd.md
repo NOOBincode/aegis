@@ -32,3 +32,5 @@ mTLS 由部署层（证书仅签 gatekeeper）另行强制，二者不互相替�
 - CLI：`--tls-ca/--tls-cert/--tls-key/--tls-server-name`；缺任一证书文件直接拒绝。
 - 实测：无证书/actor 不匹配/自批均拒绝；Bob 发起的 R2 由 Alice 证书审批通过，
   `status.approval=Approved`。
+
+- 2026-10-20：gatekeeper MCP Streamable HTTP 也支持 TLS/mTLS（`--mcp-tls-cert/--mcp-tls-key/--mcp-tls-ca/--mcp-require-client-cert`）；实测带 client cert initialize/tools/list 200，无证书 TLS alert。Host 校验由 mcp-go StreamableHTTP 执行（`localhost` SAN 有效）。

@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -103,6 +104,25 @@ func (s *Server) ServeHTTP(addr string) error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	return srv.ListenAndServe()
+}
+
+// ServeHTTPS 与 ServeHTTP 相同，但启用 TLS；tlsConfig 可配置 mTLS ClientAuth。
+// 证书由调用方从 Secret/文件挂载提供，框架不持久化私钥。
+func (s *Server) ServeHTTPS(addr, certFile, keyFile string, tlsConfig *tls.Config) error {
+	h, err := s.HTTPHandler()
+	if err != nil {
+		return err
+	}
+	if tlsConfig == nil {
+		tlsConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	}
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           h,
+		ReadHeaderTimeout: 10 * time.Second,
+		TLSConfig:         tlsConfig,
+	}
+	return srv.ListenAndServeTLS(certFile, keyFile)
 }
 
 // HTTPHandler 返回可挂进任意 http.Server / httptest 的 handler（StreamableHTTP 传输），供测试与嵌入装配。

@@ -44,6 +44,10 @@ func run() int {
 	tlsKey := fs.String("tls-key", "", "审批 HTTPS 私钥（env AEGIS_TLS_KEY）")
 	tlsCA := fs.String("tls-ca", "", "mTLS 客户端 CA（env AEGIS_TLS_CA）")
 	requireClientCert := fs.Bool("require-client-cert", true, "要求并校验 mTLS 客户端证书")
+	mcpTLSCert := fs.String("mcp-tls-cert", "", "MCP HTTPS 证书（env AEGIS_MCP_TLS_CERT）")
+	mcpTLSKey := fs.String("mcp-tls-key", "", "MCP HTTPS 私钥（env AEGIS_MCP_TLS_KEY）")
+	mcpTLSCA := fs.String("mcp-tls-ca", "", "MCP mTLS 客户端 CA（env AEGIS_MCP_TLS_CA）")
+	mcpRequireClientCert := fs.Bool("mcp-require-client-cert", false, "MCP 要求并校验客户端证书")
 	kubeconfig := fs.String("kubeconfig", "", "kubeconfig 路径（空=in-cluster 或 KUBECONFIG）")
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return 2
@@ -160,7 +164,22 @@ func run() int {
 		}
 	}()
 	gateMCP := newGatekeeperMCPServer(dc, logger)
+	mcpCert := firstNonEmpty(*mcpTLSCert, os.Getenv("AEGIS_MCP_TLS_CERT"))
+	mcpKey := firstNonEmpty(*mcpTLSKey, os.Getenv("AEGIS_MCP_TLS_KEY"))
+	mcpCA := firstNonEmpty(*mcpTLSCA, os.Getenv("AEGIS_MCP_TLS_CA"))
+	mcpTLSConfig, err := buildMCPTLS(mcpCert, mcpKey, mcpCA, *mcpRequireClientCert)
+	if err != nil {
+		logger.Error("MCP TLS 配置失败", "error", err)
+		return 2
+	}
 	go func() {
+		if mcpTLSConfig != nil {
+			logger.Info("gatekeeper MCP TLS 启动", "addr", gateAddr, "client_cert", *mcpRequireClientCert)
+			if err := gateMCP.ServeHTTPS(gateAddr, mcpCert, mcpKey, mcpTLSConfig); err != nil {
+				errCh <- err
+			}
+			return
+		}
 		logger.Info("gatekeeper MCP 接口启动", "addr", gateAddr)
 		if err := gateMCP.ServeHTTP(gateAddr); err != nil {
 			errCh <- err
@@ -173,6 +192,34 @@ func run() int {
 		logger.Error("gatekeeper 服务退出", "error", err)
 		return 1
 	}
+}
+
+func buildMCPTLS(certFile, keyFile, caFile string, requireClient bool) (*tls.Config, error) {
+	if certFile == "" && keyFile == "" && caFile == "" {
+		return nil, nil
+	}
+	if certFile == "" || keyFile == "" {
+		return nil, fmt.Errorf("MCP TLS 需要同时配置 cert/key")
+	}
+	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
+	if caFile != "" {
+		pem, err := os.ReadFile(caFile) //nolint:gosec // 运维显式配置
+		if err != nil {
+			return nil, fmt.Errorf("读取 MCP CA: %w", err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(pem) {
+			return nil, fmt.Errorf("MCP CA 无有效证书")
+		}
+		cfg.ClientCAs = pool
+	}
+	if requireClient {
+		if cfg.ClientCAs == nil {
+			return nil, fmt.Errorf("MCP require-client-cert 需要 --mcp-tls-ca")
+		}
+		cfg.ClientAuth = tls.RequireAndVerifyClientCert
+	}
+	return cfg, nil
 }
 
 func decodeSecret(raw string) ([]byte, error) {
