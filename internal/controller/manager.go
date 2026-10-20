@@ -42,7 +42,7 @@ func (m *Manager) Run(ctx context.Context) error {
 
 	factory := dynamicinformer.NewFilteredDynamicSharedInformerFactory(m.Client, m.Resync, metav1.NamespaceAll, nil)
 	informer := factory.ForResource(DefaultGVR).Informer()
-	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
+	queue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]())
 	defer queue.ShutDown()
 
 	enqueue := func(obj any) {
@@ -72,12 +72,7 @@ func (m *Manager) Run(ctx context.Context) error {
 		if shutdown {
 			return nil
 		}
-		key, ok := item.(string)
-		if !ok {
-			queue.Forget(item)
-			queue.Done(item)
-			continue
-		}
+		key := item
 		ns, name, err := cache.SplitMetaNamespaceKey(key)
 		if err != nil {
 			queue.Forget(item)
