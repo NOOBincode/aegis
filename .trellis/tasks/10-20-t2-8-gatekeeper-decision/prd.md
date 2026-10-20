@@ -29,3 +29,5 @@ allow/requires-approval/reject，R3 即使有审批也拒绝；执行/代理/网
 ## Notes
 
 - 设计出处：§4.2.2 gatekeeper、§4.2.1、I1/I5；M2 红队检查点 #2 后续覆盖。
+
+- 2026-10-20：`ChangeRequestService.Submit` 已落：幂等键派生 CR、R3 拒绝不落库、R2 落 AwaitingApproval、R1 落 Pending；fake dynamic 单测通过。
