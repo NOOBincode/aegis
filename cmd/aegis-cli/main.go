@@ -1,9 +1,7 @@
 // Package main 是 aegis 用户交互 CLI 的装配入口。
 //
-// Phase 0 占位骨架：空 root command + version 子命令。
-// replay（M1 T1.8）、approve/deny（M2 T2.4）等子命令后续挂载；CLI 仅为视图，无服务端逻辑。
-//
-// 设计出处：cmd/README.md §4；cmd/aegis-cli/README.md。
+// 默认（无子命令）进入交互式会话：本地 Tier-0 scan 与 kagent A2A 只读对话
+// 在同一个 prompt 内；aegis-cli 仅为视图/提交器，写操作仍经 gatekeeper。
 package main
 
 import (
@@ -14,10 +12,19 @@ import (
 )
 
 func main() {
+	if err := newRootCmd().Execute(); err != nil {
+		os.Exit(1)
+	}
+}
+
+func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "aegis-cli",
-		Short: "aegis 用户交互 CLI（视图与提交，无服务端逻辑）",
-		// 无 Run：执行时打印用法（cobra 默认）
+		Short: "aegis 用户交互 CLI（默认进入交互式只读会话）",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return newSession(cmd).run()
+		},
 	}
 	root.AddCommand(&cobra.Command{
 		Use:   "version",
@@ -27,13 +34,10 @@ func main() {
 			return err
 		},
 	})
-	root.AddCommand(newChatCmd())         // kagent A2A 只读对话
-	root.AddCommand(newScanCmd())         // T1.11 规则层：Tier-0 确定性巡检（离线零 LLM）
-	root.AddCommand(newReplayCmd())       // T1.8 审计：DecisionRecord / MCP 审计日志回放
-	root.AddCommand(newApproveCmd(true))  // T2.4 服务端审批（通过）
-	root.AddCommand(newApproveCmd(false)) // T2.4 服务端审批（拒绝）
-	if err := root.Execute(); err != nil {
-		// cobra 已打印错误与用法；业务退出码扩展见 cmd/aegis-cli/README.md
-		os.Exit(1)
-	}
+	root.AddCommand(newChatCmd())         // 兼容显式 chat；默认入口见 newSession
+	root.AddCommand(newScanCmd())         // Tier-0 确定性巡检（离线零 LLM）
+	root.AddCommand(newReplayCmd())       // 审计回放
+	root.AddCommand(newApproveCmd(true))  // 审批通过
+	root.AddCommand(newApproveCmd(false)) // 审批拒绝
+	return root
 }

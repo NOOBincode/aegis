@@ -348,27 +348,47 @@ CLI 用：
 
 ---
 
-## 7.1 CLI 对话（`aegis-cli chat`）
+## 7.1 CLI 交互会话（无子命令）
 
-> 当前没有 `aegis-llm` key，Agent 未 Ready，所以本节**现在不可执行**；有 key 后按此跑。
+先构建：
 
 ```bash
 GOCACHE="$PWD/.cache/gocache" go build -o bin/aegis-cli ./cmd/aegis-cli
-kubectl -n kagent port-forward svc/aegis-diagnoser 18082:8080 >/tmp/aegis-pf-agent.log 2>&1 &
-PF_AGENT=$!
+```
 
-# 交互
-bin/aegis-cli chat --endpoint http://127.0.0.1:18082/
+直接运行（不需要 `chat` 子命令）：
 
-# 或一次性
-bin/aegis-cli chat --endpoint http://127.0.0.1:18082/ --message "诊断 aegis-eval 的 OOM"
+```bash
+bin/aegis-cli
+```
+
+当前没有 LLM key，因此 Agent 对话会失败；但**本地 scan 在会话里可用**：
+
+```text
+aegis> /scan aegis-eval
+# 或
+aegis> /scan aegis-eval json
+aegis> /exit
 ```
 
 期望：
 
-- 输入普通文本 → 打印 Agent 文本结论；
-- `/exit` 退出；
-- 写操作不会由 chat 执行；需要 `request_change` + 审批。
+- 打印 `aegis 交互式安全运维会话`；
+- `/scan` 走本地 Tier-0，不调用 LLM；
+- 自然语言输入在无 key 时返回“Agent 未连接”，不会误执行写操作；
+- `/help`、`/status`、`/agent <url>`、`/namespace <ns>` 可用。
+
+有 key + Agent Ready 后，同一会话里直接输入自然语言即可：
+
+```bash
+kubectl -n kagent port-forward svc/aegis-diagnoser 18082:8080
+bin/aegis-cli
+# aegis> 诊断 aegis-eval 的 OOM
+```
+
+写操作仍必须经 gatekeeper `request_change` + 审批；会话本身只读。
+
+> `bin/aegis-cli chat` 仍保留兼容，但默认入口是 `bin/aegis-cli`。
 
 ---
 

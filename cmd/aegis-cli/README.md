@@ -4,7 +4,7 @@
 
 ## 1. 设计初衷
 
-aegis-cli 是人操作 aegis 的入口：审批、回放、状态查看、熔断复位、eval 触发。它的第一设计原则来自红队 R1 整改项（设计文档 §10）：**审批状态机若在 CLI 客户端实现，可被 `--yes` 类参数或自写客户端绕过**。因此本 CLI 自始至终只是**视图与提交器**——它渲染服务端状态（读 apiserver 的 CR status）、向服务端提交意图（写 spec），但不含任何判定逻辑；判定的唯一居所是 gatekeeper 同步链路与 controller 状态机（`cmd/gatekeeper/README.md`、`cmd/controller/README.md`）。第二原则：**人机双通道输出**——默认人读视图，`-o json` 机读，两者同一数据源（CR status），保证 CI 脚本与人工看到的事实一致。第三原则：写类子命令零绕过设计（见 §4 禁止参数条款），这是红队检查点 #2 的审计对象。
+aegis-cli 是人操作 aegis 的入口：**无子命令时默认进入交互式会话**（本地 scan + kagent 只读对话）；也提供审批、回放、状态查看、熔断复位、eval 触发等子命令。它的第一设计原则来自红队 R1 整改项（设计文档 §10）：**审批状态机若在 CLI 客户端实现，可被 `--yes` 类参数或自写客户端绕过**。因此本 CLI 自始至终只是**视图与提交器**——它渲染服务端状态（读 apiserver 的 CR status）、向服务端提交意图（写 spec），但不含任何判定逻辑；判定的唯一居所是 gatekeeper 同步链路与 controller 状态机（`cmd/gatekeeper/README.md`、`cmd/controller/README.md`）。第二原则：**人机双通道输出**——默认人读视图，`-o json` 机读，两者同一数据源（CR status），保证 CI 脚本与人工看到的事实一致。第三原则：写类子命令零绕过设计（见 §4 禁止参数条款），这是红队检查点 #2 的审计对象。
 
 ## 2. 职责与任务清单
 
@@ -12,7 +12,8 @@ aegis-cli 是人操作 aegis 的入口：审批、回放、状态查看、熔断
 
 | 子命令 | 职责 | 关键参数语义 | 服务端落点 | 任务来源 |
 | --- | --- | --- | --- | --- |
-| `chat` | kagent A2A 交互式只读诊断对话（不直接写） | `--endpoint`（默认 `http://127.0.0.1:18082/`）、`--message` 一次性、`/exit` 退出 | kagent Agent A2A；写操作仍需 `request_change` | M1/M2 配套 |
+| 默认 `aegis-cli` | 进入交互式会话：本地 `/scan` + 自然语言 Agent 对话 + `/agent`/`/status`/`/exit` | 无 | | M2 配套 |
+| `chat` | 兼容入口：kagent A2A 交互式只读诊断对话（不直接写） | `--endpoint`（默认 `http://127.0.0.1:18082/`）、`--message` 一次性、`/exit` 退出 | kagent Agent A2A；写操作仍需 `request_change` | M1/M2 配套 |
 | `approve <cr>` | 提交审批通过意图（R2 人审通道之一，§4.2.1） | cr 名；`--note` 审批意见（机读为字段 `note`） | 写 `spec.approval`（approver 取自本地 kubeconfig 身份，channel=cli）；状态机校验合法性 | T2.4 |
 | `deny <cr>` | 提交审批拒绝意图 | cr 名；`--note` 拒绝理由（机读为字段 `note`） | 写 `spec.approval`（approver 取自本地身份，channel=cli）；状态机校验合法性，迁移结果 Rejected | T2.4 |
 | `status <cr>` | 视图：状态机位置、verification、rollback 信息、abort 状态 | `-o json` | 只读 status，零写 | M2 配套 |
