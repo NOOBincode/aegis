@@ -198,7 +198,7 @@ testdata/harness/
 | H2 | Unknown 状态 + preimage + SSA + envtest + kill-recovery | L1 envtest、L4 三分支、零污染 |
 | H3 | ApprovalDecision 单写者 + controller actor + Stop/心跳 | 审批→执行全链路单一 status writer |
 
-**当前状态**：H1/H2/H3 均未实现。M2 的 E2E 只证明功能链，不证明 harness 可靠性。
+**当前状态（2026-10-21）**：H1 的 journal 纯领域库已落（append/fsync/checksum hash chain/Verify，单测通过）；H1 的 fake 故障注入、H2/H3 均未实现。M2 的 E2E 只证明功能链，不证明 harness 可靠性。
 
 ## 11. 开放决策（需要确认）
 

@@ -18,7 +18,8 @@
 
 ## Acceptance Criteria
 
-- [ ] journal 只追加、hash chain、fsync 失败不执行；恢复不读 journal；
+- [x] journal 纯领域库：只追加、每行 fsync、checksum hash chain、Verify；单测通过（H1 部分）；
+- [ ] journal 接入 controller 写路径 + fake 故障注入；恢复不读 journal；
 - [ ] ChangeRequest `Unknown` 可进入/退出，绝不假成功；
 - [ ] SSA + envtest 覆盖字段所有权冲突；L3 canonical bytes 一致；
 - [ ] L4 kill controller 三阶段（dry-run 后/apply 后/verify 中）三分支各演示一次，零污染；
