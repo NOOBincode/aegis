@@ -50,3 +50,5 @@
 - 2026-10-20 R2 审批 E2E：request_change +2 → CR AwaitingApproval（确认未执行）→ CLI approve（bob）→ status Approved → controller 执行 → replicas 3、CR Committed。证明审批门禁无绕过；修复 CR 创建时 status 丢失与 CLI `--cr`。
 
 - 2026-10-21：in-cluster controller Deployment（aegis/controller:0.1.0，`--enable-writes`，最小 RBAC）上线；实机 R1 CR → replicas 2 Committed；R2 审批后 → replicas 4 Committed，全程无需本地 controller。
+
+- 2026-10-21：真实 Agent 会话发现 controller 对已删除 CR 的 NotFound 反复重试约 40 分钟；修复为 `apierrors.IsNotFound` 返回 nil，controller 升 0.1.1 部署；复测新 Pod 无该日志。记录见 `docs/sessions/2026-10-21-cli-real.md`。

@@ -187,3 +187,10 @@ func TestReconcileAwaitingApprovalDoesNotExecute(t *testing.T) {
 		t.Fatalf("未审批不应执行：state=%s fake=%d", cr.Status.State, f.executed)
 	}
 }
+
+func TestReconcileDeletedCRDropsQueueItem(t *testing.T) {
+	r := newFake(t, newFakeCR("Pending", false))
+	if err := r.Reconcile(context.Background(), "default", "does-not-exist"); err != nil {
+		t.Fatalf("NotFound 应静默丢弃队列项，得到：%v", err)
+	}
+}

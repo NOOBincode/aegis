@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -49,6 +50,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, namespace, name string) erro
 		gvr = DefaultGVR
 	}
 	u, err := r.Client.Resource(gvr).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		// CR 已删除：队列里的旧 key 不是错误，不能指数退避重试 40 分钟。
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("get ChangeRequest %s/%s: %w", namespace, name, err)
 	}

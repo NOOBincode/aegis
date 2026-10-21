@@ -20,7 +20,7 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: controller
-          image: aegis/controller:0.1.0
+          image: aegis/controller:0.1.1
           imagePullPolicy: IfNotPresent
           args:
             - "--enable-writes"
