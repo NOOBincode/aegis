@@ -30,6 +30,7 @@ aegis 是单人 + AI 辅助的安全敏感项目，bus factor = 1（落地方案
 | `docs/adr/ADR-0NN-*.md` | 单条架构决策记录 |
 | `docs/threat-model.md` | 威胁模型正文（红队维护） |
 | `docs/harness-reliability.md` | harness 意图日志/操作状态机设计（项目适配版；H1–H3 未实现） |
+| `docs/blackbox-m2.md` | 当前 M2 黑盒校验清单（可执行流程/期望/已知阻塞） |
 
 **任务清单**（对应落地方案 T0.6 及设计文档 §8.1 的文档账 30–40h，摊入每周碎片 1–2h）：
 
