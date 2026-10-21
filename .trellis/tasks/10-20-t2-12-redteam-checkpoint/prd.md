@@ -26,3 +26,5 @@
 ## Notes
 
 - 设计出处：§10 红队记录、M2 准入门槛；本任务只先钉住纯领域回归。
+
+- 2026-10-21：redteam-netpol 扩展 gatekeeper MCP（8086）：default 直连被阻断，kagent 放行；5 个只读 server + gatekeeper 共 6 个入口全过。

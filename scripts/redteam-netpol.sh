@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# scripts/redteam-netpol.sh —— M2 T2.12 网络层红队：验证 5 个自研 MCP server 的
+# scripts/redteam-netpol.sh —— M2 T2.12 网络层红队：验证自研 MCP server 的
 # NetworkPolicy 只允许 kagent 命名空间入站，default 命名空间直连必须被阻断。
 # 只读探测（MCP initialize），不调用任何工具；结束后清理临时 namespace。
-# 前置：kind + 5 个 MCPServer 已部署；curlimages/curl 镜像在 kind 节点可用。
+# 前置：kind + 5 个 MCPServer 已部署；gatekeeper 若已部署则一并纳入探测。
+# curlimages/curl 镜像需在 kind 节点可用。
 # 退出码：0 通过；1 断言失败；2 前置缺失；3 集群操作失败。
 set -euo pipefail
 
@@ -20,6 +21,16 @@ NODE="${AEGIS_REDTEAM_NODE:-aegis-worker}"
 kubectl get ns kagent >/dev/null 2>&1 || die 2 preflight missing_kagent "kagent 不存在；先 make up"
 kubectl -n kagent get svc scan k8s-read prom logs events >/dev/null 2>&1 \
   || die 2 preflight missing_servers "5 个 MCP Service 未齐；先 make mcp-up"
+
+# gatekeeper MCPServer 是 M2 写入口；已部署则纳入网络隔离探测。
+PROBE_SERVICES=("scan 8081" "k8s-read 8080" "prom 8082" "logs 8083" "events 8084")
+if kubectl -n kagent get svc gatekeeper >/dev/null 2>&1; then
+  PROBE_SERVICES+=("gatekeeper 8086")
+fi
+PROBE_SPEC=""
+for item in "${PROBE_SERVICES[@]}"; do
+  PROBE_SPEC+="\"${item}\" "
+done
 
 cleanup() { kubectl delete ns "$NS_PROBE" --ignore-not-found >/dev/null 2>&1 || true; }
 trap cleanup EXIT
@@ -42,7 +53,7 @@ spec:
         - sh
         - -c
         - |
-          for svc in "scan 8081" "k8s-read 8080" "prom 8082" "logs 8083" "events 8084"; do
+          for svc in ${PROBE_SPEC}; do
             set -- \$svc
             name=\$1; port=\$2
             code=\$(curl -sS -m 3 -o /dev/null -w '%{http_code}' -X POST "http://\$name.kagent.svc:\$port/mcp" -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"redteam","version":"1"}}}' 2>/dev/null || echo 000)
@@ -65,7 +76,9 @@ DEFAULT_OUT="$(kubectl -n default logs probe 2>/dev/null || true)"
 KAGENT_OUT="$(kubectl -n kagent logs probe 2>/dev/null || true)"
 
 fail=0
-for svc in scan k8s-read prom logs events; do
+for item in "${PROBE_SERVICES[@]}"; do
+  set -- $item
+  svc="$1"
   d="$(printf '%s\n' "$DEFAULT_OUT" | awk -F= -v s="$svc" '$1==s{print $2}' | tail -1)"
   k="$(printf '%s\n' "$KAGENT_OUT" | awk -F= -v s="$svc" '$1==s{print $2}' | tail -1)"
   if [ "$d" = "200" ]; then fail "netpol" "server=$svc" "default=200" "reason=not_blocked"; fail=1; else info netpol "server=$svc" "default=${d:-000}" "result=blocked"; fi
