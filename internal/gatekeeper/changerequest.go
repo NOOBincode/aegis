@@ -22,6 +22,12 @@ import (
 	"github.com/aegis-dev/aegis/internal/rollback"
 )
 
+// AuthorityChecker 是 I9 字段所有权端口；nil 表示未接线（调用方需自行保证
+// 不直写有主字段；gatekeeper MCP 生产装配必须提供）。
+type AuthorityChecker interface {
+	CheckScale(ctx context.Context, namespace, name string) (owner, decision string, err error)
+}
+
 // SubmitOperation 是 Agent/调用方提交的一次写意图；只描述意图与证据，不直接执行。
 type SubmitOperation struct {
 	Tool         string
@@ -60,6 +66,7 @@ type ChangeRequestService struct {
 	GVR          schema.GroupVersionResource
 	Now          func() time.Time
 	PolicyLoader PolicyLoader // 非 nil 时强制从 GuardrailPolicy 读取；加载失败 fail-closed
+	Authority    AuthorityChecker
 }
 
 // Submit 创建幂等 ChangeRequest。R3 拒绝不落库；R2 落 AwaitingApproval；
@@ -77,15 +84,35 @@ func (s *ChangeRequestService) Submit(ctx context.Context, req SubmitRequest) (S
 	}
 	ops := make([]rollback.Operation, 0, len(req.Operations))
 	riskOps := make([]risk.Input, 0, len(req.Operations))
-	for _, op := range req.Operations {
+	ownedField := ""
+	for i, op := range req.Operations {
 		ro := rollback.Operation{Tool: op.Tool, Args: op.Args}
 		ops = append(ops, ro)
 		inv := rollback.Generate(ro)
+		owner := ""
+		if s.Authority != nil && op.Tool == "scale_deployment" {
+			name, _ := op.Args["name"].(string)
+			if name == "" {
+				return SubmitResult{}, fmt.Errorf("scale_deployment 缺 name，无法做 authorityCheck")
+			}
+			o, decision, err := s.Authority.CheckScale(ctx, op.Namespace, name)
+			if err != nil {
+				return SubmitResult{}, fmt.Errorf("authorityCheck（fail-closed）: %w", err)
+			}
+			req.Operations[i].Authority = aegisv1.AuthorityCheck{FieldOwner: o, Decision: decision}
+			owner = o
+			if o != "" {
+				ownedField = o
+			}
+		}
 		riskOps = append(riskOps, risk.Input{
 			Tool: op.Tool, Verb: op.Verb, Resource: op.Resource, Namespace: op.Namespace,
 			Args: op.Args, BlastRadius: op.BlastRadius, HasInverse: inv.Reversible,
-			DryRunPassed: op.DryRunPassed,
+			DryRunPassed: op.DryRunPassed, Owner: owner,
 		})
+	}
+	if ownedField != "" {
+		return SubmitResult{Decision: Decision{Reject: true, Reasons: []string{"字段所有权 " + ownedField + "：直写必须走 owner API，当前拒绝"}}, Name: crName(req.IdempotencyKey)}, nil
 	}
 	// 当前 Service.Submit 只对单操作做严格裁决；多操作按最后/第一条的风险合并后续扩展。
 	if len(riskOps) == 0 {

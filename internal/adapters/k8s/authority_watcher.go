@@ -125,3 +125,24 @@ func (w *AuthorityWatcher) refreshLocked(ctx context.Context) error {
 	w.dirty.Store(false)
 	return nil
 }
+
+// CheckScale 查询 Deployment.spec.replicas 的字段所有权；owner 非空时调用方必须
+// 走 owner API 或拒绝直写（I9）。返回 owner 形如 hpa/hpa-name。
+func (w *AuthorityWatcher) CheckScale(ctx context.Context, namespace, name string) (string, string, error) {
+	g, err := w.Graph(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	dec, owners, err := g.Check(authority.FieldRef{Kind: "Deployment", Namespace: namespace, Name: name, Field: "spec.replicas"})
+	if err != nil {
+		return "", "", err
+	}
+	if len(owners) == 0 {
+		return "", string(dec), nil
+	}
+	ref := owners[0].Ref
+	if ref == "" {
+		ref = string(owners[0].Kind)
+	}
+	return ref, string(dec), nil
+}

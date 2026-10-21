@@ -9,7 +9,7 @@ metadata:
 spec:
   transportType: http
   deployment:
-    image: aegis/gatekeeper:0.1.1
+    image: aegis/gatekeeper:0.1.2
     imagePullPolicy: IfNotPresent
     port: 8086
     serviceAccountName: gatekeeper

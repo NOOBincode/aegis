@@ -14,9 +14,9 @@ import (
 
 // newGatekeeperMCPServer 暴露 request_change：Agent 只提交“写意图”，由 gatekeeper
 // 判定并落 ChangeRequest；不暴露任何直接写集群的工具（M2 唯一放行点方向）。
-func newGatekeeperMCPServer(dc dynamic.Interface, logger *slog.Logger) *mcpserver.Server {
+func newGatekeeperMCPServer(dc dynamic.Interface, authority gatekeeper.AuthorityChecker, logger *slog.Logger) *mcpserver.Server {
 	reg := mcpserver.NewRegistry()
-	svc := &gatekeeper.ChangeRequestService{Client: dc, PolicyLoader: &gatekeeper.GuardrailPolicyLoader{Client: dc, Namespace: "kagent", Name: "aegis-default"}}
+	svc := &gatekeeper.ChangeRequestService{Client: dc, PolicyLoader: &gatekeeper.GuardrailPolicyLoader{Client: dc, Namespace: "kagent", Name: "aegis-default"}, Authority: authority}
 	reg.MustRegister(mcpserver.Tool{
 		Name:        "request_change",
 		Description: "提交一次写变更意图给 gatekeeper；返回判定与 ChangeRequest 名，不直接执行集群写",

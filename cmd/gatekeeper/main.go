@@ -22,9 +22,11 @@ import (
 
 	"github.com/spf13/pflag"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
+	k8sadapter "github.com/aegis-dev/aegis/internal/adapters/k8s"
 	"github.com/aegis-dev/aegis/internal/gatekeeper"
 	"github.com/aegis-dev/aegis/internal/session"
 )
@@ -99,7 +101,23 @@ func run() int {
 		logger.Error("构造 dynamic client 失败", "error", err)
 		return 1
 	}
-	gateMCP := newGatekeeperMCPServer(dc, logger)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	cs, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		logger.Error("构造 clientset（authority）失败", "error", err)
+		return 1
+	}
+	watcher := k8sadapter.NewAuthorityWatcher(cs, 30*time.Second, 10*time.Second)
+	if err := watcher.Refresh(ctx); err != nil {
+		logger.Warn("authority 初始图谱失败，request_change 将 fail-closed 直到恢复", "error", err)
+	}
+	go func() {
+		if err := watcher.Run(ctx); err != nil {
+			logger.Warn("authority watcher 退出", "error", err)
+		}
+	}()
+	gateMCP := newGatekeeperMCPServer(dc, watcher, logger)
 	mcpCert := firstNonEmpty(*mcpTLSCert, os.Getenv("AEGIS_MCP_TLS_CERT"))
 	mcpKey := firstNonEmpty(*mcpTLSKey, os.Getenv("AEGIS_MCP_TLS_KEY"))
 	mcpCA := firstNonEmpty(*mcpTLSCA, os.Getenv("AEGIS_MCP_TLS_CA"))
@@ -108,8 +126,6 @@ func run() int {
 		logger.Error("MCP TLS 配置失败", "error", err)
 		return 2
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 	errCh := make(chan error, 2)
 
 	// 审批端点只在有 HMAC secret 时启动；MCP request_change 不需要审批 secret 也能服务，

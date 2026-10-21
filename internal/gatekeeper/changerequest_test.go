@@ -83,3 +83,21 @@ func TestSubmitR2AwaitingApproval(t *testing.T) {
 		t.Fatalf("R2 status state=%q want AwaitingApproval", state)
 	}
 }
+
+type fakeAuthority struct{ owner string }
+
+func (f fakeAuthority) CheckScale(context.Context, string, string) (string, string, error) {
+	return f.owner, "via-owner-api", nil
+}
+
+func TestSubmitRejectsOwnedField(t *testing.T) {
+	dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{changeRequestGVR: "ChangeRequestList"})
+	svc := &ChangeRequestService{Client: dc, GVR: changeRequestGVR, Authority: fakeAuthority{owner: "hpa/payments"}}
+	got, err := svc.Submit(context.Background(), submitFixture())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Decision.Reject || got.Created {
+		t.Fatalf("有主字段必须拒绝且不落库：%+v", got)
+	}
+}

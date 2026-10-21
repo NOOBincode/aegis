@@ -23,7 +23,7 @@ spec:
         fsGroup: 65534
       containers:
         - name: gatekeeper
-          image: aegis/gatekeeper:0.1.1
+          image: aegis/gatekeeper:0.1.2
           imagePullPolicy: IfNotPresent
           args:
             - "--approval-addr=:8085"
