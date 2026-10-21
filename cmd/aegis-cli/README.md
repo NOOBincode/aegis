@@ -114,3 +114,7 @@ CLI 是短进程，不设指标端点、不接 OTel exporter（§3）；其可�
    - 审批疲劳口子（F8）：验证 `approve` 必须逐 CR 显式指定 + 呈现影响面摘要，无批量放行参数。
 4. **权限最小化用例**：CLI kubeconfig 仅具备 spec 写 + 读权限时全部子命令可用；获得 status 写权限的凭证被服务端拒绝（subresource 隔离验证）。
 5. **CI 钩子**：eval 回归回退时 `aegis-cli eval run` 非零退出，作为 I8 门禁的执行端验证手段（T3.4 配套）。
+
+## 9. TUI
+
+默认 `aegis-cli` 在 TTY 下进入全屏 TUI：主栏对话/scan，右侧 quick start/target/safety，底部输入。非 TTY 自动回退行式 session；`AEGIS_TUI=force` 可强制，`AEGIS_TUI_DUMP` 导出纯文本帧用于截图。

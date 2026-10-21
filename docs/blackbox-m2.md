@@ -362,6 +362,8 @@ GOCACHE="$PWD/.cache/gocache" go build -o bin/aegis-cli ./cmd/aegis-cli
 bin/aegis-cli
 ```
 
+TTY 下会进入全屏 TUI；管道/非 TTY 自动回退行式 session。`AEGIS_TUI=force` 可强制 TUI（截图/脚本用）。
+
 当前没有 LLM key，因此 Agent 对话会失败；但**本地 scan 在会话里可用**：
 
 ```text
