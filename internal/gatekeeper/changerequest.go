@@ -56,9 +56,10 @@ type SubmitResult struct {
 // ChangeRequestService 负责“判定 + 落 ChangeRequest”；执行仍由 controller/gatekeeper
 // executor 在后续推进，本服务不直接写业务集群资源。
 type ChangeRequestService struct {
-	Client dynamic.Interface
-	GVR    schema.GroupVersionResource
-	Now    func() time.Time
+	Client       dynamic.Interface
+	GVR          schema.GroupVersionResource
+	Now          func() time.Time
+	PolicyLoader PolicyLoader // 非 nil 时强制从 GuardrailPolicy 读取；加载失败 fail-closed
 }
 
 // Submit 创建幂等 ChangeRequest。R3 拒绝不落库；R2 落 AwaitingApproval；
@@ -90,8 +91,16 @@ func (s *ChangeRequestService) Submit(ctx context.Context, req SubmitRequest) (S
 	if len(riskOps) == 0 {
 		return SubmitResult{}, fmt.Errorf("operations 不能为空")
 	}
+	pol := req.Policy
+	if s.PolicyLoader != nil {
+		loaded, err := s.PolicyLoader.Load(ctx)
+		if err != nil {
+			return SubmitResult{}, fmt.Errorf("加载 GuardrailPolicy（fail-closed）: %w", err)
+		}
+		pol = loaded
+	}
 	decInput := Input{
-		Risk: riskOps[0], Policy: req.Policy, Operations: ops,
+		Risk: riskOps[0], Policy: pol, Operations: ops,
 		Approval: req.Approval, DryRunPassed: req.Operations[0].DryRunPassed,
 	}
 	dec := Evaluate(decInput)

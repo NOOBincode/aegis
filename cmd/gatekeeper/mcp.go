@@ -16,7 +16,7 @@ import (
 // 判定并落 ChangeRequest；不暴露任何直接写集群的工具（M2 唯一放行点方向）。
 func newGatekeeperMCPServer(dc dynamic.Interface, logger *slog.Logger) *mcpserver.Server {
 	reg := mcpserver.NewRegistry()
-	svc := &gatekeeper.ChangeRequestService{Client: dc}
+	svc := &gatekeeper.ChangeRequestService{Client: dc, PolicyLoader: &gatekeeper.GuardrailPolicyLoader{Client: dc, Namespace: "kagent", Name: "aegis-default"}}
 	reg.MustRegister(mcpserver.Tool{
 		Name:        "request_change",
 		Description: "提交一次写变更意图给 gatekeeper；返回判定与 ChangeRequest 名，不直接执行集群写",
@@ -25,17 +25,20 @@ func newGatekeeperMCPServer(dc dynamic.Interface, logger *slog.Logger) *mcpserve
 			"additionalProperties": false,
 			"required":             []string{"session_ref", "idempotency_key", "intent", "source", "requested_by", "tool", "verb", "resource", "namespace", "args"},
 			"properties": map[string]any{
-				"session_ref":     map[string]any{"type": "string", "minLength": 1},
-				"idempotency_key": map[string]any{"type": "string", "minLength": 1, "maxLength": 128},
-				"intent":          map[string]any{"type": "string", "minLength": 1},
-				"source":          map[string]any{"type": "string", "enum": []string{"agent", "human"}},
-				"requested_by":    map[string]any{"type": "string", "minLength": 1},
-				"tool":            map[string]any{"type": "string", "minLength": 1},
-				"verb":            map[string]any{"type": "string", "minLength": 1},
-				"resource":        map[string]any{"type": "string", "minLength": 1},
-				"namespace":       map[string]any{"type": "string", "minLength": 1},
-				"args":            map[string]any{"type": "object", "additionalProperties": true},
-				"dry_run_passed":  map[string]any{"type": "boolean", "default": false},
+				"session_ref":             map[string]any{"type": "string", "minLength": 1},
+				"idempotency_key":         map[string]any{"type": "string", "minLength": 1, "maxLength": 128},
+				"intent":                  map[string]any{"type": "string", "minLength": 1},
+				"source":                  map[string]any{"type": "string", "enum": []string{"agent", "human"}},
+				"requested_by":            map[string]any{"type": "string", "minLength": 1},
+				"tool":                    map[string]any{"type": "string", "minLength": 1},
+				"verb":                    map[string]any{"type": "string", "minLength": 1},
+				"resource":                map[string]any{"type": "string", "minLength": 1},
+				"namespace":               map[string]any{"type": "string", "minLength": 1},
+				"args":                    map[string]any{"type": "object", "additionalProperties": true},
+				"dry_run_passed":          map[string]any{"type": "boolean", "default": false},
+				"blast_radius_pods":       map[string]any{"type": "integer", "minimum": 0},
+				"blast_radius_nodes":      map[string]any{"type": "integer", "minimum": 0},
+				"blast_radius_namespaces": map[string]any{"type": "integer", "minimum": 0},
 			},
 		},
 		Metadata: mcpserver.ToolMetadata{
@@ -52,7 +55,10 @@ func newGatekeeperMCPServer(dc dynamic.Interface, logger *slog.Logger) *mcpserve
 				Operations: []gatekeeper.SubmitOperation{{
 					Tool: str(args, "tool"), Verb: str(args, "verb"), Resource: str(args, "resource"),
 					Namespace: str(args, "namespace"), Args: opArgs, DryRunPassed: dry,
-					BlastRadius: risk.BlastRadius{},
+					BlastRadius: risk.BlastRadius{
+						Pods: intVal(args, "blast_radius_pods"), Nodes: intVal(args, "blast_radius_nodes"),
+						Namespaces: intVal(args, "blast_radius_namespaces"),
+					},
 				}},
 			}
 			res, err := svc.Submit(ctx, req)
@@ -69,6 +75,18 @@ func newGatekeeperMCPServer(dc dynamic.Interface, logger *slog.Logger) *mcpserve
 		},
 	})
 	return mcpserver.NewServer("gatekeeper", "0.1.0", reg)
+}
+
+func intVal(m map[string]any, k string) int {
+	switch n := m[k].(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
+	}
+	return 0
 }
 
 func str(m map[string]any, k string) string {

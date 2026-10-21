@@ -31,3 +31,5 @@ R3 硬拒/配额/速率/预算/熔断 + R2 强制人审；审批人身份必须�
 
 - 设计出处：§4.2.2（risk/approval/log-sanitizer/circuit-breaker）、§5.2；R16/R23。
 - 关键红线：策略超时/错误必须拒绝写（fail-closed），不得“先放行再补审”。
+
+- 2026-10-20：gatekeeper MCP 强制从 `kagent/aegis-default` GuardrailPolicy 加载策略；缺失/解码失败 fail-closed。默认策略已落 `deploy/gatekeeper/guardrail-default.yaml`；实测 blast_radius_pods=11 超配额被拒且不落 CR，pods=2 落 Pending。

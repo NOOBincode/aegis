@@ -1,0 +1,32 @@
+# M2 默认护栏策略：gatekeeper request_change 必须读取本对象；不可用即 fail-closed。
+# 这些值刻意保守；生产按环境调整，但 kube-system/Secret 写等 R3 硬拒不可由本对象放宽。
+apiVersion: aegis.dev/v1alpha1
+kind: GuardrailPolicy
+metadata:
+  name: aegis-default
+  namespace: kagent
+  labels: {aegis.dev/component: gatekeeper}
+spec:
+  blastRadiusQuota:
+    maxPodsPerChange: 10
+    maxNodesPerChange: 1
+    maxNamespacesPerChange: 1
+  rateLimit:
+    maxChangesPerHour: 20
+    maxReadQPS: 50
+  sessionBudget:
+    maxToolCalls: 100
+    maxLLMTokens: 200000
+  circuitBreaker:
+    failureRateThreshold: 0.5
+    window: 5m
+    action: read-only
+  hardDeny:
+    - verbs: [delete]
+      resources: [namespaces]
+      namespaces: ["*"]
+      note: 禁止删除命名空间（不可逆）
+    - verbs: [patch, update, create]
+      resources: [secrets]
+      namespaces: ["*"]
+      note: 禁止写 Secret（R3）
