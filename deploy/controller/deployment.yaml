@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aegis-controller
+  namespace: kagent
+  labels: {app: aegis-controller, aegis.dev/component: controller}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: aegis-controller}
+  template:
+    metadata:
+      labels: {app: aegis-controller, aegis.dev/component: controller}
+    spec:
+      serviceAccountName: aegis-controller
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: controller
+          image: aegis/controller:0.1.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--enable-writes"
+            - "--resync=30s"
+          env:
+            - name: AEGIS_LOG_LEVEL
+              value: info
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 200m, memory: 128Mi}

@@ -1,0 +1,40 @@
+# aegis controller 的最小权限：只管理 ChangeRequest + 读取/缩放 Deployment。
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: aegis-controller
+  namespace: kagent
+  labels: {aegis.dev/component: controller}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aegis-controller
+  labels: {aegis.dev/component: controller}
+rules:
+  - apiGroups: ["aegis.dev"]
+    resources: ["changerequests"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["aegis.dev"]
+    resources: ["changerequests/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["aegis.dev"]
+    resources: ["changerequests/finalizers"]
+    verbs: ["update"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aegis-controller
+  labels: {aegis.dev/component: controller}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aegis-controller
+subjects:
+  - kind: ServiceAccount
+    name: aegis-controller
+    namespace: kagent
