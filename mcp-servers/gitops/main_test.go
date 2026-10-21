@@ -54,3 +54,31 @@ func TestOpenChangePRTool(t *testing.T) {
 }
 
 func slogDiscard() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
+
+func TestOpenChangePRFailClosedWithoutWhitelist(t *testing.T) {
+	t.Setenv("AEGIS_GIT_REPO_WHITELIST", "")
+	t.Setenv("AEGIS_GIT_TOKEN", "tok")
+	tool := openChangePRTool(slogDiscard())
+	res := tool.Handler(context.Background(), map[string]any{
+		"repo": "org/gitops", "cr_ref": "cr-1", "description": "x", "manifest_patch": "x",
+		"diagnosis": "d", "blast_radius": "1", "risk_level": "R2", "rollback": "r",
+		"file_path": "clusters/prod/x.yaml",
+	})
+	if res.Err == nil {
+		t.Fatal("无白名单应 fail-closed")
+	}
+}
+
+func TestOpenChangePRRejectsNonWhitelistedRepo(t *testing.T) {
+	t.Setenv("AEGIS_GIT_REPO_WHITELIST", "org/allowed")
+	t.Setenv("AEGIS_GIT_TOKEN", "tok")
+	tool := openChangePRTool(slogDiscard())
+	res := tool.Handler(context.Background(), map[string]any{
+		"repo": "org/evil", "cr_ref": "cr-1", "description": "x", "manifest_patch": "x",
+		"diagnosis": "d", "blast_radius": "1", "risk_level": "R2", "rollback": "r",
+		"file_path": "clusters/prod/x.yaml",
+	})
+	if res.Err == nil {
+		t.Fatal("非白名单 repo 应 fail-closed")
+	}
+}

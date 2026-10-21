@@ -129,3 +129,35 @@ func TestApprovalServerRejectsActorCertMismatch(t *testing.T) {
 		t.Fatalf("payload actor bob vs cert carol 应 403，得到 %d：%s", w.Code, w.Body.String())
 	}
 }
+
+func TestApprovalServerRejectsReplay(t *testing.T) {
+	srv, token := approvalFixture(t, "AwaitingApproval")
+	body, _ := json.Marshal(map[string]string{"envelope": token})
+	req := httptest.NewRequest(http.MethodPost, "/v1/approval", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("first approval code=%d body=%s", w.Code, w.Body.String())
+	}
+	req2 := httptest.NewRequest(http.MethodPost, "/v1/approval", bytes.NewReader(body))
+	w2 := httptest.NewRecorder()
+	srv.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusUnauthorized {
+		t.Fatalf("重放应以 401 拒绝，得到 %d：%s", w2.Code, w2.Body.String())
+	}
+}
+
+func TestApprovalServerRejectsTamperedEnvelope(t *testing.T) {
+	srv, token := approvalFixture(t, "AwaitingApproval")
+	if token == "" {
+		t.Fatal("token 为空")
+	}
+	tampered := token[:len(token)-1] + "x"
+	body, _ := json.Marshal(map[string]string{"envelope": tampered})
+	req := httptest.NewRequest(http.MethodPost, "/v1/approval", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("篡改信封应 401，得到 %d：%s", w.Code, w.Body.String())
+	}
+}
