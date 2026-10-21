@@ -178,8 +178,8 @@ make redteam-netpol
 - ✅ L5：`make test`（-race）+ `make bench`（新增；基线待确认）
 - ✅ L1 集成部分：`make test-integration`；fake LLM 未实现
 - ✅ L2 可用命令：gatekeeper/controller/security-smoke/m1-demo（无 Agent）；审计断言脚本未完全自动
-- ❌ L3 golden harness：未实现
-- ❌ L4 fault-injection harness：未实现
+- ❌ L3 golden harness：未实现（oracle 与金样本目录见 `docs/harness-reliability.md`）
+- ❌ L4 fault-injection harness：未实现（kill-recovery/零污染 oracle 见同文档）
 - ✅ L6 手工流程：`scripts/m1-demo.sh`（需 key）
 - ⚠️ L7：已有 security-smoke/redteam-netpol + 单测红队；完整 M2 渗透矩阵未闭环
 - 结论：**L3/L4 未实现前，M2 不能宣称“全矩阵通过”**。

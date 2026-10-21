@@ -10,7 +10,7 @@
 | --- | --- |
 | [技术方案设计文档](AI原生K8s安全操作平台-技术方案设计文档.md)（v1.4） | 决策层事实源：定位、不变量 I1–I10、架构、数据契约、失败模式 F1–F15、ADR |
 | [落地方案](AI原生K8s安全操作平台-落地方案-v1.0.md)（v1.1） | 执行层：任务拆分 T 编号、周级排期、里程碑验收口径 |
-| `.agents/skills/` | 项目级规范 skill：`aegis-ci` / `aegis-go-quality` / `aegis-ddd-layout` / `aegis-security-review` |
+| `.agents/skills/` | 项目级规范 skill：`aegis-ci` / `aegis-go-quality` / `aegis-ddd-layout` / `aegis-security-review` / `aegis-test-matrix` |
 | 各目录 `README.md` | 该目录的设计初衷、任务清单、开源包选型、具体设计、错误处理与可观测性 |
 
 ## 目录结构（轻型 DDD，设计文档 §3.2）
@@ -25,7 +25,7 @@ aegis/
 ├── agent/                   # L3 Agent 运行时（kagent 配置层 + prompt/上下文工程）
 ├── eval/                    # L4 eval harness（Python）
 ├── deploy/                  # kind 环境 + 观测基座 + versions.md 版本钉死表
-├── docs/                    # ADR + 威胁模型
+├── docs/                    # ADR + 威胁模型 + harness 可靠性设计
 ├── crds/                    # CRD manifests
 └── scripts/                 # 自动化脚本（bash only）
 ```

@@ -29,6 +29,7 @@ aegis 是单人 + AI 辅助的安全敏感项目，bus factor = 1（落地方案
 | `docs/adr/README.md` | ADR 规范、编号规则、索引表 |
 | `docs/adr/ADR-0NN-*.md` | 单条架构决策记录 |
 | `docs/threat-model.md` | 威胁模型正文（红队维护） |
+| `docs/harness-reliability.md` | harness 意图日志/操作状态机设计（项目适配版；H1–H3 未实现） |
 
 **任务清单**（对应落地方案 T0.6 及设计文档 §8.1 的文档账 30–40h，摊入每周碎片 1–2h）：
 
@@ -59,6 +60,7 @@ aegis 是单人 + AI 辅助的安全敏感项目，bus factor = 1（落地方案
 | --- | --- |
 | 新增 / 修改 CRD 字段 | 对照设计文档 §5 同步；威胁模型资产清单按需更新 |
 | 改变分级、审批、回滚行为 | 对应 ADR 增订或新增；threat-model.md 缓解映射表更新 |
+| 修改意图日志/操作状态机/恢复语义 | `docs/harness-reliability.md` 增订；L3/L4 oracle 同步到 `aegis-test-matrix` |
 | 新增写工具 | 按 `.agents/skills/aegis-security-review/SKILL.md` 写工具准入第 5 条同步攻击面 |
 | 新增组件或外部依赖 | ADR（若为形态级决策）；版本号一律写"以 `deploy/versions.md` 钉死为准"，禁止在文档里写死版本 |
 | 里程碑验收 / 红队检查点 | threat-model.md 红队评审记录表追加；`docs/adr/README.md` 复评状态更新 |
