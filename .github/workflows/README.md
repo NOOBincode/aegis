@@ -90,6 +90,23 @@ CI 自身的失败语义按红线口径执行：
 | GitHub Actions 平台故障 | 平台状态页 | 延期合并或本地复跑相同 Makefile 目标留证，不得绕过门禁合入 | fail-closed：CI 是门禁，门禁缺席时默认不放行 |
 | eval 预算告警 | 月度预算计数 | 当月中止全量回归，降级为影响面子集并记录 | 降级的是回归范围，不是门禁强度 |
 
+## 5.1 L0–L7 测试矩阵（M2 起）
+
+完整定义与退出标准见 skill `aegis-test-matrix`（`.agents/skills/aegis-test-matrix/SKILL.md`）；这里是 CI 映射。
+
+| 级别 | 门禁时机 | 当前 CI/本地入口 | 状态 |
+| --- | --- | --- | --- |
+| L0 单元 | 每次提交 | `make test-unit`；CI `unit-test` job 的 `make test` 覆盖 | 已接 |
+| L1 集成 + fake LLM | 每次提交 | `make test-integration`；fake LLM harness 未落盘 | 集成已接，fake LLM 缺口 |
+| L2 自动化 E2E（替身） | 合并前 | `make gatekeeper-up controller-up` + `make security-smoke` + `AEGIS_DEMO_WITH_AGENT=0 make m1-demo` | 手动可跑，CI M2 待接 |
+| L3 回放/金样本 | 合并前 + 里程碑 | `aegis-cli replay` golden harness | 未实现 |
+| L4 故障注入/恢复 | 合并前 | 待补脚本 | 未实现 |
+| L5 race + 性能 | 合并前 | CI `unit-test` 的 `make test`（-race）；本地 `make bench` | race 已接，性能基线待钉 |
+| L6 真模型 E2E | 里程碑/发布 | `scripts/m1-demo.sh`（用户提供 key） | 手工已跑，CI 不接真实 key |
+| L7 渗透 | 定期 + 里程碑 | `make security-smoke`、`make redteam-netpol` + 红队矩阵 | 部分 |
+
+**门禁纪律**：L3/L4 未实现前，M2 不得宣称“全矩阵通过”；CI 绿只代表已接入的级别。L6 的真实 key 绝不进 CI/仓库/日志。
+
 ## 6. 可观测性（日志 / 指标 / Trace / 审计）
 
 CI 是被管对象也是审计源，口径如下：

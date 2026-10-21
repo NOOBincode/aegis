@@ -38,6 +38,11 @@ jobs:
         shell: bash
         run: bash scripts/env-up.sh --cluster-only
 
+      # L1 集成（真 kind 依赖；不调用真实 LLM）。
+      - name: L1 integration tests
+        shell: bash
+        run: make test-integration
+
       # M1 起在此追加：apply crds/ + controller 状态机冒烟；M2 起追加三连演示（workflows README §4.2）。
 
       # 幂等销毁（即使失败也清理，避免泄漏）。
