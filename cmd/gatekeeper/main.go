@@ -79,6 +79,16 @@ func run() int {
 		return 2
 	}
 	secretRaw := os.Getenv("AEGIS_APPROVAL_SECRET")
+	if secretRaw == "" {
+		if f := os.Getenv("AEGIS_APPROVAL_SECRET_FILE"); f != "" {
+			b, err := os.ReadFile(f) //nolint:gosec // 运维显式挂载的 Secret 文件
+			if err != nil {
+				logger.Error("读取 AEGIS_APPROVAL_SECRET_FILE 失败", "error", err)
+				return 2
+			}
+			secretRaw = strings.TrimSpace(string(b))
+		}
+	}
 	cfg, err := restConfig(*kubeconfig)
 	if err != nil {
 		logger.Error("加载 kubeconfig 失败", "error", err)

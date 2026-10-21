@@ -37,3 +37,5 @@ allow/requires-approval/reject，R3 即使有审批也拒绝；执行/代理/网
 - 2026-10-20：gatekeeper MCP 支持 `ServeHTTPS` + mTLS 客户端证书；`request_change` 可经 HTTPS/mTLS 暴露。
 
 - 2026-10-20：gatekeeper 打包为 `aegis/gatekeeper:0.1.0`，以 kagent MCPServer `kagent/gatekeeper` 部署（MCP-only；:8086）；实测 kagent Service/port-forward 可 `initialize`、`tools/list=request_change`，并成功创建 CR。审批端口在 MCP-only 部署中不启用（无 secret）；审批仍用本地/独立 secret 进程。
+
+- 2026-10-21：in-cluster 全链路：kagent/gatekeeper MCPServer request_change（R2，bob）→ AwaitingApproval → 集群内 gatekeeper-approval Deployment（Secret volume，alice）→ Approved → 本地 controller（--enable-writes）执行 → Deployment 1→3、CR Committed。证明集群内审批与执行串通，无旁路。

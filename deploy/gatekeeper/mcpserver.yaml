@@ -9,7 +9,7 @@ metadata:
 spec:
   transportType: http
   deployment:
-    image: aegis/gatekeeper:0.1.0
+    image: aegis/gatekeeper:0.1.1
     imagePullPolicy: IfNotPresent
     port: 8086
     serviceAccountName: gatekeeper
@@ -21,18 +21,3 @@ spec:
     path: /mcp
     targetPort: 8086
   timeout: 30s
----
-# 仅用于本地 CLI port-forward；不暴露 8085 为公网入口由 NetworkPolicy 约束。
-apiVersion: v1
-kind: Service
-metadata:
-  name: gatekeeper-approval
-  namespace: kagent
-  labels: {app: gatekeeper, aegis.dev/component: gatekeeper}
-spec:
-  selector:
-    app.kubernetes.io/name: gatekeeper
-  ports:
-    - name: approval
-      port: 8085
-      targetPort: 8085

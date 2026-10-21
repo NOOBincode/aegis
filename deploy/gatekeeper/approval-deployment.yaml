@@ -1,0 +1,72 @@
+# 独立审批 Deployment：把 HMAC secret 以 Secret volume 挂载，不放进 MCPServer env/仓库。
+# MCP 由 kagent/gatekeeper MCPServer 提供；本 Deployment 只负责 :8085 审批 HTTP。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gatekeeper-approval
+  namespace: kagent
+  labels: {app: gatekeeper-approval, aegis.dev/component: gatekeeper}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: gatekeeper-approval}
+  template:
+    metadata:
+      labels: {app: gatekeeper-approval, aegis.dev/component: gatekeeper}
+    spec:
+      serviceAccountName: gatekeeper
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile: {type: RuntimeDefault}
+        fsGroup: 65534
+      containers:
+        - name: gatekeeper
+          image: aegis/gatekeeper:0.1.1
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--approval-addr=:8085"
+            - "--mcp-addr=127.0.0.1:18086"
+          env:
+            - name: AEGIS_APPROVAL_SECRET_FILE
+              value: /var/run/secrets/aegis-gatekeeper/secret
+          ports:
+            - {name: approval, containerPort: 8085}
+          livenessProbe:
+            httpGet: {path: /healthz, port: approval}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: {path: /healthz, port: approval}
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 200m, memory: 128Mi}
+          volumeMounts:
+            - name: approval-secret
+              mountPath: /var/run/secrets/aegis-gatekeeper
+              readOnly: true
+      volumes:
+        - name: approval-secret
+          secret:
+            secretName: aegis-gatekeeper
+            defaultMode: 0440
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gatekeeper-approval
+  namespace: kagent
+  labels: {app: gatekeeper-approval, aegis.dev/component: gatekeeper}
+spec:
+  selector: {app: gatekeeper-approval}
+  ports:
+    - name: approval
+      port: 8085
+      targetPort: approval

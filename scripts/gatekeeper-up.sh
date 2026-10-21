@@ -16,11 +16,25 @@ kubectl get ns kagent >/dev/null 2>&1 || die 2 preflight missing_kagent "kagent 
 kubectl -n kagent get deploy kagent-controller >/dev/null 2>&1 || die 2 preflight missing_controller "kagent-controller 不存在；先 make up"
 
 
+# 审批 Secret：HMAC 对称密钥，仅集群内；不打印值、不落 git。
+if ! kubectl -n kagent get secret aegis-gatekeeper >/dev/null 2>&1; then
+  value="$(openssl rand -base64 32 | tr -d '\n=' | tr '+/' '-_')"
+  kubectl -n kagent create secret generic aegis-gatekeeper --from-literal=secret="$value" >/dev/null
+  unset value
+  info secret action=created name=aegis-gatekeeper result=ok
+else
+  info secret action=exists name=aegis-gatekeeper result=ok
+fi
+
 kubectl apply -f "${AEGIS_ROOT}/deploy/gatekeeper/rbac.yaml" >/dev/null
 kubectl apply -f "${AEGIS_ROOT}/deploy/gatekeeper/mcpserver.yaml" >/dev/null
+kubectl apply -f "${AEGIS_ROOT}/deploy/gatekeeper/approval-deployment.yaml" >/dev/null
 kubectl apply -f "${AEGIS_ROOT}/deploy/security/kagent-mcp-networkpolicy.yaml" >/dev/null
 info apply result=ok
 
 kubectl -n kagent rollout status deployment/gatekeeper --timeout=180s >/dev/null 2>&1 \
   || die 3 wait_ready timeout "kagent/gatekeeper 180s 未 Ready；查 kubectl -n kagent describe deploy gatekeeper"
+kubectl -n kagent rollout status deployment/gatekeeper-approval --timeout=180s >/dev/null 2>&1 \
+  || die 3 wait_ready timeout "kagent/gatekeeper-approval 180s 未 Ready；查 kubectl -n kagent describe deploy gatekeeper-approval"
 info wait_ready component=gatekeeper result=ready
+info wait_ready component=gatekeeper-approval result=ready

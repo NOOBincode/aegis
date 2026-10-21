@@ -30,3 +30,5 @@ CLI 只提交带 HMAC 信封的人审意图，不实现审批状态机、不写 
 - 2026-10-20 R2 审批 E2E：CLI `approve --cr kagent/...` 成功；服务端写 Approved；controller 仅审批后才执行（replicas 1→3，Committed）。
 
 - 2026-10-20：kagent MCPServer `kagent/gatekeeper` 已部署为 MCP-only（request_change 可达）；审批端口需独立 Secret/部署，当前未在集群 gatekeeper 内启用。
+
+- 2026-10-21：集群内审批 Deployment + Secret volume 实测：CLI（从集群 Secret 注入 HMAC）审批 R2，controller 执行成功。
