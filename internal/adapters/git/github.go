@@ -7,6 +7,7 @@ package git
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -105,4 +106,149 @@ func (c *Client) CreatePullRequest(ctx context.Context, pr PullRequest) (string,
 		return "", fmt.Errorf("PR 响应缺 html_url")
 	}
 	return out.HTMLURL, nil
+}
+
+// EnsureBranch 从 from 分支创建 branch；已存在视为幂等成功。
+func (c *Client) EnsureBranch(ctx context.Context, branch, from string) error {
+	if strings.TrimSpace(branch) == "" || strings.TrimSpace(from) == "" {
+		return fmt.Errorf("branch/from 必填")
+	}
+	u := *c.base
+	u.Path = strings.TrimRight(c.base.Path, "/") + "/repos/" + c.owner + "/" + c.repo + "/git/ref/heads/" + escapePath(from)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return err
+	}
+	c.setHeaders(req)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("读取 base ref: %w", err)
+	}
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	_ = resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("读取 base ref HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+	var ref struct {
+		Object struct {
+			SHA string `json:"sha"`
+		} `json:"object"`
+	}
+	if err := json.Unmarshal(raw, &ref); err != nil || ref.Object.SHA == "" {
+		return fmt.Errorf("base ref 缺 sha")
+	}
+	body, _ := json.Marshal(map[string]string{"ref": "refs/heads/" + branch, "sha": ref.Object.SHA})
+	u.Path = strings.TrimRight(c.base.Path, "/") + "/repos/" + c.owner + "/" + c.repo + "/git/refs"
+	req, err = http.NewRequestWithContext(ctx, http.MethodPost, u.String(), bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	c.setHeaders(req)
+	resp, err = c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("创建 branch: %w", err)
+	}
+	raw, _ = io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	_ = resp.Body.Close()
+	if resp.StatusCode == http.StatusUnprocessableEntity && strings.Contains(string(raw), "already exists") {
+		return nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("创建 branch HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+	return nil
+}
+
+// PutFile 在 branch 上创建/更新文件；先读 sha，再 PUT base64 内容。
+func (c *Client) PutFile(ctx context.Context, branch, filePath string, content []byte, message string) error {
+	if strings.TrimSpace(branch) == "" || strings.TrimSpace(filePath) == "" || len(content) == 0 {
+		return fmt.Errorf("branch/path/content 必填")
+	}
+	if err := validateRepoPath(filePath); err != nil {
+		return err
+	}
+	contentPath := escapePath(filePath)
+	u := *c.base
+	u.Path = strings.TrimRight(c.base.Path, "/") + "/repos/" + c.owner + "/" + c.repo + "/contents/" + contentPath
+	q := u.Query()
+	q.Set("ref", branch)
+	u.RawQuery = q.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return err
+	}
+	c.setHeaders(req)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("读取文件 sha: %w", err)
+	}
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	_ = resp.Body.Close()
+	var sha string
+	switch {
+	case resp.StatusCode == http.StatusNotFound:
+		// 新建
+	case resp.StatusCode >= 200 && resp.StatusCode < 300:
+		var file struct {
+			SHA string `json:"sha"`
+		}
+		if err := json.Unmarshal(raw, &file); err != nil || file.SHA == "" {
+			return fmt.Errorf("文件响应缺 sha")
+		}
+		sha = file.SHA
+	default:
+		return fmt.Errorf("读取文件 HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+	payload := map[string]string{
+		"message": message,
+		"content": base64.StdEncoding.EncodeToString(content),
+		"branch":  branch,
+	}
+	if sha != "" {
+		payload["sha"] = sha
+	}
+	body, _ := json.Marshal(payload)
+	req, err = http.NewRequestWithContext(ctx, http.MethodPut, u.String(), bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	c.setHeaders(req)
+	resp, err = c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("提交文件: %w", err)
+	}
+	raw, _ = io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	_ = resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("提交文件 HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+	return nil
+}
+
+func (c *Client) setHeaders(req *http.Request) {
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/vnd.github+json")
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+}
+
+func escapePath(p string) string {
+	parts := strings.Split(strings.Trim(p, "/"), "/")
+	for i, part := range parts {
+		parts[i] = url.PathEscape(part)
+	}
+	return strings.Join(parts, "/")
+}
+
+func validateRepoPath(p string) error {
+	if strings.HasPrefix(p, "/") || strings.Contains(p, "\\") {
+		return fmt.Errorf("非法仓库路径")
+	}
+	for _, part := range strings.Split(p, "/") {
+		if part == "" || part == "." || part == ".." {
+			return fmt.Errorf("非法仓库路径")
+		}
+	}
+	return nil
 }

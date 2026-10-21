@@ -94,3 +94,19 @@ PR 描述固定五段，字段值由 description 入参与关联 CR 共同固化
   3. 无审 PR：构造未过人审的 cr_ref，验证拒绝；
   4. 注入 PR 描述：description 夹带指令文本，验证出口包裹与留痕（I4）；
   5. 重放：复制 cr_ref 重发，验证幂等折叠到同一 PR（F15 同族）。
+
+
+## M2 T2.10 实现（2026-10-20）
+
+`open_change_pr` 已实现：`internal/gitops.Build` 五段模板/白名单/patch 上限 →
+`internal/adapters/git` GitHub 兼容 API（EnsureBranch / PutFile / CreatePullRequest）。
+工具只创建 PR，不持有集群凭证，不直接改集群；`NoClusterMutation=true`。
+
+环境变量：
+
+- `AEGIS_GIT_BASE_URL`（默认 `https://api.github.com`）
+- `AEGIS_GIT_TOKEN`（GitHub token；由 Secret 注入，不落日志）
+- `AEGIS_GIT_REPO_WHITELIST`（逗号分隔 `owner/repo`）
+- `AEGIS_GIT_BASE_BRANCH`（默认 `main`）
+
+未配置 token/白名单时工具 fail-closed 返回错误。

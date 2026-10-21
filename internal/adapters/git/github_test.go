@@ -50,3 +50,44 @@ func TestCreatePullRequestFailClosed(t *testing.T) {
 		t.Fatal("空 head/title 应失败")
 	}
 }
+
+func TestEnsureBranchAndPutFile(t *testing.T) {
+	var sawRef, sawFile bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/org/gitops/git/ref/heads/main":
+			_, _ = w.Write([]byte(`{"object":{"sha":"base-sha"}}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/org/gitops/git/refs":
+			var body map[string]string
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["ref"] != "refs/heads/aegis/cr-1" || body["sha"] != "base-sha" {
+				t.Fatalf("ref body=%v", body)
+			}
+			sawRef = true
+			w.WriteHeader(http.StatusCreated)
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/org/gitops/contents/clusters/prod/app.yaml":
+			http.NotFound(w, r)
+		case r.Method == http.MethodPut && r.URL.Path == "/repos/org/gitops/contents/clusters/prod/app.yaml":
+			var body map[string]string
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["branch"] != "aegis/cr-1" || body["content"] == "" || body["sha"] != "" {
+				t.Fatalf("file body=%v", body)
+			}
+			sawFile = true
+			w.WriteHeader(http.StatusCreated)
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	c, _ := New(Config{BaseURL: srv.URL, Owner: "org", Repo: "gitops"})
+	if err := c.EnsureBranch(context.Background(), "aegis/cr-1", "main"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.PutFile(context.Background(), "aegis/cr-1", "clusters/prod/app.yaml", []byte("kind: ConfigMap\n"), "aegis: cr-1"); err != nil {
+		t.Fatal(err)
+	}
+	if !sawRef || !sawFile {
+		t.Fatalf("ref=%v file=%v", sawRef, sawFile)
+	}
+}
