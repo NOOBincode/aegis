@@ -23,7 +23,7 @@ func newRootCmd() *cobra.Command {
 		Short: "aegis 用户交互 CLI（默认进入交互式只读会话）",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return newSession(cmd).run()
+			return chooseInteractive(cmd)
 		},
 	}
 	root.AddCommand(&cobra.Command{
