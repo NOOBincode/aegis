@@ -12,6 +12,7 @@ aegis-cli 是人操作 aegis 的入口：审批、回放、状态查看、熔断
 
 | 子命令 | 职责 | 关键参数语义 | 服务端落点 | 任务来源 |
 | --- | --- | --- | --- | --- |
+| `chat` | kagent A2A 交互式只读诊断对话（不直接写） | `--endpoint`（默认 `http://127.0.0.1:18082/`）、`--message` 一次性、`/exit` 退出 | kagent Agent A2A；写操作仍需 `request_change` | M1/M2 配套 |
 | `approve <cr>` | 提交审批通过意图（R2 人审通道之一，§4.2.1） | cr 名；`--note` 审批意见（机读为字段 `note`） | 写 `spec.approval`（approver 取自本地 kubeconfig 身份，channel=cli）；状态机校验合法性 | T2.4 |
 | `deny <cr>` | 提交审批拒绝意图 | cr 名；`--note` 拒绝理由（机读为字段 `note`） | 写 `spec.approval`（approver 取自本地身份，channel=cli）；状态机校验合法性，迁移结果 Rejected | T2.4 |
 | `status <cr>` | 视图：状态机位置、verification、rollback 信息、abort 状态 | `-o json` | 只读 status，零写 | M2 配套 |
@@ -24,6 +25,16 @@ aegis-cli 是人操作 aegis 的入口：审批、回放、状态查看、熔断
 范围控制：新子命令准入口径——凡涉及写动作的（如未来新增 `abort`），每个过一遍红队（`.agents/skills/aegis-security-review/SKILL.md` 新写工具准入清单的 CLI 版），威胁模型同步更新（`docs/threat-model.md`）。
 
 **职责黑名单**：不做任何放行/分级/回滚判定；不缓存服务端状态做"本地判定"；不实现审批状态机的任何一环；不直接调 L1 工具层或集群写接口。
+
+## 2.1 `chat` 的边界
+
+`aegis-cli chat` 是 **kagent A2A 的客户端视图**，不是第二个 Agent 运行时：
+
+- 它只发 `message/send`，渲染 `result.artifacts/status.message` 文本；
+- 没有直接写集群的工具，也不内置 gatekeeper 判定；
+- 写操作仍必须经 gatekeeper 的 `request_change`，审批仍走 `approve/deny`；
+- 没有 `AEGIS_AGENT_ENDPOINT`/端口转发时不会自动拉起模型；
+- 对话内容可能经外部模型出域，适用 `docs/data-egress.md` 的同一限制。
 
 ## 3. 技术选型与开源包
 

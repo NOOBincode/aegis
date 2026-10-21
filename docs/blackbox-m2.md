@@ -348,6 +348,30 @@ CLI 用：
 
 ---
 
+## 7.1 CLI 对话（`aegis-cli chat`）
+
+> 当前没有 `aegis-llm` key，Agent 未 Ready，所以本节**现在不可执行**；有 key 后按此跑。
+
+```bash
+GOCACHE="$PWD/.cache/gocache" go build -o bin/aegis-cli ./cmd/aegis-cli
+kubectl -n kagent port-forward svc/aegis-diagnoser 18082:8080 >/tmp/aegis-pf-agent.log 2>&1 &
+PF_AGENT=$!
+
+# 交互
+bin/aegis-cli chat --endpoint http://127.0.0.1:18082/
+
+# 或一次性
+bin/aegis-cli chat --endpoint http://127.0.0.1:18082/ --message "诊断 aegis-eval 的 OOM"
+```
+
+期望：
+
+- 输入普通文本 → 打印 Agent 文本结论；
+- `/exit` 退出；
+- 写操作不会由 chat 执行；需要 `request_change` + 审批。
+
+---
+
 ## 8. 真实 LLM / Agent（当前不可用）
 
 当前 `kagent/aegis-llm` 不存在，`aegis-diagnoser` 和 `aegis-operator` 都 `Ready=False`。因此：
