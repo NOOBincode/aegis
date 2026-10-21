@@ -29,3 +29,5 @@ I9 的核心：字段级所有权图谱回答“这个字段归谁管”，attri
 ## Notes
 
 - 设计出处：§4.2.2/§4.2.4、I9/F11/F13；L2 安全包，需人审。
+
+- 2026-10-21：新增 `internal/adapters/k8s.AuthorityWatcher`（Deployment/StatefulSet/HPA informer + TTL 缓存）；变更 dirty 后重建，重建失败 fail-closed 不返回旧图。fake clientset 测试通过；尚未接入 gatekeeper/Attributor 主路径。
