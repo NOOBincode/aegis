@@ -15,16 +15,20 @@ import (
 // tui 是全屏终端视图；默认在 TTY 下启用，AEGIS_TUI=force 可在管道/截图环境强制渲染。
 // 它只负责呈现与输入路由，scan/Agent 仍走同一 CLI 函数，不新增业务路径。
 type tui struct {
-	cmd        *cobra.Command
-	out        io.Writer
-	in         io.Reader
-	endpoint   string
-	namespace  string
-	kubeconfig string
-	width      int
-	height     int
-	entries    []tuiEntry
-	status     string
+	cmd           *cobra.Command
+	out           io.Writer
+	in            io.Reader
+	endpoint      string
+	namespace     string
+	kubeconfig    string
+	width         int
+	height        int
+	entries       []tuiEntry
+	status        string
+	store         *sessionStore
+	sess          *sessionRecord
+	storageErr    string
+	resumePending bool
 }
 
 type tuiEntry struct {
@@ -79,6 +83,15 @@ func newTUI(cmd *cobra.Command) *tui {
 		tuiEntry{tuiRoleSystem, "security operations console · read-only by default"},
 		tuiEntry{tuiRoleSystem, "Type a request, or use /scan /status /agent /namespace /help /exit."},
 	)
+	if st, err := newSessionStore(); err != nil {
+		t.storageErr = err.Error()
+		t.entries = append(t.entries, tuiEntry{tuiRoleError, "session storage unavailable: " + err.Error()})
+	} else {
+		t.store = st
+		t.sess = newSessionRecord(endpoint, t.namespace)
+		t.sess.Entries = t.entries
+		_ = t.store.save(t.sess)
+	}
 	return t
 }
 
@@ -100,6 +113,7 @@ func (t *tui) run() error {
 		if err := t.handle(line); err != nil {
 			t.entries = append(t.entries, tuiEntry{tuiRoleError, err.Error()})
 		}
+		t.persist()
 		t.render()
 		if line == "/exit" || line == "/quit" {
 			return nil
@@ -115,7 +129,40 @@ func (t *tui) handle(line string) error {
 			t.entries = append(t.entries, tuiEntry{tuiRoleSystem, helpText()})
 			return nil
 		case "/status":
-			t.entries = append(t.entries, tuiEntry{tuiRoleSystem, fmt.Sprintf("agent=%s  namespace=%s  kubeconfig=%s", t.endpoint, tuiNamespace(t.namespace), t.kubeconfig)})
+			id := "no-session"
+			if t.sess != nil {
+				id = t.sess.ID
+			}
+			t.entries = append(t.entries, tuiEntry{tuiRoleSystem, fmt.Sprintf("session=%s  agent=%s  namespace=%s  kubeconfig=%s", id, t.endpoint, tuiNamespace(t.namespace), t.kubeconfig)})
+			return nil
+		case "/sessions":
+			t.entries = append(t.entries, tuiEntry{tuiRoleSystem, t.sessionListText()})
+			return nil
+		case "/resume":
+			t.persist()
+			if len(fields) < 2 {
+				t.entries = append(t.entries, tuiEntry{tuiRoleSystem, t.sessionListText()})
+				return nil
+			}
+			if err := t.resumeSession(fields[1]); err != nil {
+				t.entries = append(t.entries, tuiEntry{tuiRoleError, err.Error()})
+				return nil
+			}
+			t.entries = append(t.entries, tuiEntry{tuiRoleSystem, "resumed session " + t.sess.ID + " · " + t.sess.Title})
+			return nil
+		case "/new":
+			t.persist()
+			if t.store != nil {
+				t.sess = newSessionRecord(t.endpoint, t.namespace)
+				t.sess.Entries = t.entries
+				t.entries = []tuiEntry{
+					{tuiRoleSystem, "security operations console · read-only by default"},
+					{tuiRoleSystem, "new session " + t.sess.ID},
+				}
+				t.sess.Entries = t.entries
+				t.resumePending = false
+				_ = t.store.save(t.sess)
+			}
 			return nil
 		case "/agent":
 			if len(fields) < 2 {
@@ -148,7 +195,18 @@ func (t *tui) handle(line string) error {
 	}
 	t.status = "thinking"
 	t.render()
-	text, err := sendA2AMessage(t.cmd.Context(), t.endpoint, 240*time.Second, line)
+	sendText := line
+	if t.resumePending && t.sess != nil {
+		prev := t.entries
+		if len(prev) > 0 {
+			prev = prev[:len(prev)-1]
+		}
+		if ctx := buildResumeContext(t.sess.ID, prev); ctx != "" {
+			sendText = ctx + "\n\n" + line
+		}
+		t.resumePending = false
+	}
+	text, err := sendA2AMessage(t.cmd.Context(), t.endpoint, 240*time.Second, sendText)
 	t.status = "ready"
 	if err != nil {
 		t.entries = append(t.entries, tuiEntry{tuiRoleError, "agent unavailable: " + err.Error() + " · /scan works locally"})
@@ -248,7 +306,7 @@ func (t *tui) render() {
 	head := pad(title, t.width-len(tag)) + tag
 	write("\033[36;1m" + head + "\033[0m")
 	plainWrite(head)
-	status := fmt.Sprintf(" cluster kind-aegis  |  namespace %s  |  agent %s  |  %s", tuiNamespace(t.namespace), t.endpoint, t.status)
+	status := fmt.Sprintf(" session %s  |  cluster kind-aegis  |  ns %s  |  agent %s", sessionID(t), tuiNamespace(t.namespace), t.status)
 	write("\033[2m" + pad(status, t.width) + "\033[0m")
 	plainWrite(pad(status, t.width))
 	write("\033[2m" + line + "\033[0m")
@@ -300,13 +358,17 @@ func (t *tui) render() {
 		"  namespace " + tuiNamespace(t.namespace),
 		"",
 		"  CONNECTION",
-		"  agent configured",
+		"  " + shortEndpoint(t.endpoint),
 		"  status " + t.status,
 		"",
 		"  SAFETY",
 		"  read-only console",
 		"  writes -> request_change",
 		"  R2 -> human approval",
+		"",
+		"  SESSION " + sessionID(t),
+		"  " + shortTitle(t.sessTitle()),
+		"  /sessions  /resume <id>",
 	}
 	for i := 0; i < bodyH; i++ {
 		l := ""
@@ -330,8 +392,8 @@ func (t *tui) render() {
 	}
 	write("\033[2m" + line + "\033[0m")
 	plainWrite(line)
-	write("\033[2m /scan  /status  /agent  /namespace  /help  /exit        safety: read-only, writes require approval\033[0m")
-	plainWrite(" /scan  /status  /agent  /namespace  /help  /exit        safety: read-only, writes require approval")
+	write("\033[2m /scan  /status  /sessions  /resume  /new  /help  /exit             safety: read-only, writes require approval\033[0m")
+	plainWrite(" /scan  /status  /sessions  /resume  /new  /help  /exit             safety: read-only, writes require approval")
 	write("\033[33;1m > \033[0m")
 	plainWrite(" > ")
 
@@ -407,6 +469,37 @@ func wrapText(s string, n int) []string {
 	return out
 }
 
+func (t *tui) sessTitle() string {
+	if t == nil || t.sess == nil || t.sess.Title == "" {
+		return "new session"
+	}
+	return t.sess.Title
+}
+
+func shortTitle(s string) string {
+	r := []rune(s)
+	if len(r) > 26 {
+		return string(r[:25]) + "~"
+	}
+	return s
+}
+
+func shortEndpoint(endpoint string) string {
+	s := strings.TrimPrefix(strings.TrimPrefix(endpoint, "https://"), "http://")
+	s = strings.TrimSuffix(s, "/")
+	if len([]rune(s)) > 26 {
+		s = string([]rune(s)[:25]) + "~"
+	}
+	return s
+}
+
+func sessionID(t *tui) string {
+	if t == nil || t.sess == nil {
+		return "none"
+	}
+	return t.sess.ID
+}
+
 func helpText() string {
-	return "commands: /scan [ns] [json|text|sarif] · /status · /agent <url> · /namespace <ns> · /help · /exit"
+	return "commands: /scan [ns] [json|text|sarif] · /status · /agent <url> · /namespace <ns> · /sessions · /resume <id> · /new · /help · /exit"
 }

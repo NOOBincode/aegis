@@ -118,3 +118,11 @@ CLI 是短进程，不设指标端点、不接 OTel exporter（§3）；其可�
 ## 9. TUI
 
 默认 `aegis-cli` 在 TTY 下进入全屏 TUI：主栏对话/scan，右侧 quick start/target/safety，底部输入。非 TTY 自动回退行式 session；`AEGIS_TUI=force` 可强制，`AEGIS_TUI_DUMP` 导出纯文本帧用于截图。
+
+## 10. 会话管理
+
+- 默认无子命令进入 TUI；本地 session 存在 `$XDG_STATE_HOME/aegis/sessions`（默认 `~/.local/state/aegis/sessions`，0700/0600）。
+- 每个会话 8 位 hex ID，标题取首条用户消息；文件只含本地 transcript，不含 key。
+- `/sessions` 列出最近会话；`/resume <id>` 恢复原 transcript/endpoint/namespace；`/new` 新会话。
+- `/resume` 后下一次自然语言请求会附带**有限的历史上下文回放**（本地 transcript，不是 kagent 服务端 thread）。
+- `AEGIS_SESSION_DIR` 可覆盖目录，便于隔离测试。

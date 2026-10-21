@@ -378,7 +378,8 @@ aegis> /exit
 - 打印 `aegis 交互式安全运维会话`；
 - `/scan` 走本地 Tier-0，不调用 LLM；
 - 自然语言输入在无 key 时返回“Agent 未连接”，不会误执行写操作；
-- `/help`、`/status`、`/agent <url>`、`/namespace <ns>` 可用。
+- `/help`、`/status`、`/agent <url>`、`/namespace <ns>` 可用；
+- `/sessions` 列出本地会话，`/resume <id>` 恢复，`/new` 新建。
 
 有 key + Agent Ready 后，同一会话里直接输入自然语言即可：
 

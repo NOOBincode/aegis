@@ -7,6 +7,7 @@ import (
 
 func TestTUIRenderLayout(t *testing.T) {
 	t.Setenv("AEGIS_TUI_WIDTH", "100")
+	t.Setenv("AEGIS_SESSION_DIR", t.TempDir())
 	t.Setenv("AEGIS_TUI_HEIGHT", "30")
 	cmd := newRootCmd()
 	var out strings.Builder
