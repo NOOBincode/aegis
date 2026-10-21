@@ -125,4 +125,5 @@ CLI 是短进程，不设指标端点、不接 OTel exporter（§3）；其可�
 - 每个会话 8 位 hex ID，标题取首条用户消息；文件只含本地 transcript，不含 key。
 - `/sessions` 列出最近会话；`/resume <id>` 恢复原 transcript/endpoint/namespace；`/new` 新会话。
 - `/resume` 后下一次自然语言请求会附带**有限的历史上下文回放**（本地 transcript，不是 kagent 服务端 thread）。
+- TUI 写路径：`/change <ns> <deployment> <from> <to>` → gatekeeper `request_change`；`/approve <cr> [approver]`；`/cr <cr>` 查看状态。需 `AEGIS_GATEKEEPER_ENDPOINT`、`AEGIS_APPROVAL_ENDPOINT`、`AEGIS_APPROVAL_SECRET`（Secret 注入）。
 - `AEGIS_SESSION_DIR` 可覆盖目录，便于隔离测试。

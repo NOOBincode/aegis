@@ -6,10 +6,16 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 // tui 是全屏终端视图；默认在 TTY 下启用，AEGIS_TUI=force 可在管道/截图环境强制渲染。
@@ -19,6 +25,9 @@ type tui struct {
 	out           io.Writer
 	in            io.Reader
 	endpoint      string
+	gateway       string
+	approval      string
+	actor         string
 	namespace     string
 	kubeconfig    string
 	width         int
@@ -77,7 +86,20 @@ func newTUI(cmd *cobra.Command) *tui {
 	if h < 16 {
 		h = 16
 	}
+	gateway := strings.TrimSpace(os.Getenv("AEGIS_GATEKEEPER_ENDPOINT"))
+	if gateway == "" {
+		gateway = "http://127.0.0.1:18086/"
+	}
+	approval := strings.TrimSpace(os.Getenv("AEGIS_APPROVAL_ENDPOINT"))
+	if approval == "" {
+		approval = "http://127.0.0.1:18085/v1/approval"
+	}
+	actor := strings.TrimSpace(os.Getenv("AEGIS_ACTOR"))
+	if actor == "" {
+		actor = "tui-user"
+	}
 	t := &tui{cmd: cmd, out: cmd.OutOrStdout(), in: cmd.InOrStdin(), endpoint: endpoint,
+		gateway: gateway, approval: approval, actor: actor,
 		namespace: os.Getenv("AEGIS_NAMESPACE"), kubeconfig: kc, width: w, height: h, status: "ready"}
 	t.entries = append(t.entries,
 		tuiEntry{tuiRoleSystem, "security operations console · read-only by default"},
@@ -133,7 +155,7 @@ func (t *tui) handle(line string) error {
 			if t.sess != nil {
 				id = t.sess.ID
 			}
-			t.entries = append(t.entries, tuiEntry{tuiRoleSystem, fmt.Sprintf("session=%s  agent=%s  namespace=%s  kubeconfig=%s", id, t.endpoint, tuiNamespace(t.namespace), t.kubeconfig)})
+			t.entries = append(t.entries, tuiEntry{tuiRoleSystem, fmt.Sprintf("session=%s  agent=%s  gateway=%s  approval=%s  namespace=%s", id, t.endpoint, t.gateway, t.approval, tuiNamespace(t.namespace))})
 			return nil
 		case "/sessions":
 			t.entries = append(t.entries, tuiEntry{tuiRoleSystem, t.sessionListText()})
@@ -183,6 +205,20 @@ func (t *tui) handle(line string) error {
 			return nil
 		case "/scan":
 			return t.scan(strings.Join(fields[1:], " "))
+		case "/gatekeeper":
+			if len(fields) < 2 {
+				t.entries = append(t.entries, tuiEntry{tuiRoleSystem, "gatekeeper=" + t.gateway})
+				return nil
+			}
+			t.gateway = fields[1]
+			t.entries = append(t.entries, tuiEntry{tuiRoleSystem, "gatekeeper=" + t.gateway})
+			return nil
+		case "/change":
+			return t.change(fields[1:])
+		case "/approve", "/deny":
+			return t.approveCR(fields)
+		case "/cr":
+			return t.crStatus(fields)
 		case "/exit", "/quit":
 			return nil
 		default:
@@ -358,7 +394,9 @@ func (t *tui) render() {
 		"  namespace " + tuiNamespace(t.namespace),
 		"",
 		"  CONNECTION",
-		"  " + shortEndpoint(t.endpoint),
+		"  agent " + shortEndpoint(t.endpoint),
+		"  gw    " + shortEndpoint(t.gateway),
+		"  appr  " + shortEndpoint(t.approval),
 		"  status " + t.status,
 		"",
 		"  SAFETY",
@@ -392,8 +430,8 @@ func (t *tui) render() {
 	}
 	write("\033[2m" + line + "\033[0m")
 	plainWrite(line)
-	write("\033[2m /scan  /status  /sessions  /resume  /new  /help  /exit             safety: read-only, writes require approval\033[0m")
-	plainWrite(" /scan  /status  /sessions  /resume  /new  /help  /exit             safety: read-only, writes require approval")
+	write("\033[2m /scan /status /sessions /resume /new /change /approve /cr /help /exit      writes: gatekeeper + approval\033[0m")
+	plainWrite(" /scan /status /sessions /resume /new /change /approve /cr /help /exit      writes: gatekeeper + approval")
 	write("\033[33;1m > \033[0m")
 	plainWrite(" > ")
 
@@ -493,6 +531,102 @@ func shortEndpoint(endpoint string) string {
 	return s
 }
 
+func (t *tui) change(args []string) error {
+	if len(args) != 4 {
+		t.entries = append(t.entries, tuiEntry{tuiRoleError, "usage: /change <namespace> <deployment> <from_replicas> <to_replicas>"})
+		return nil
+	}
+	ns, name := args[0], args[1]
+	from, err1 := strconv.Atoi(args[2])
+	to, err2 := strconv.Atoi(args[3])
+	if err1 != nil || err2 != nil || from < 0 || to < 0 {
+		t.entries = append(t.entries, tuiEntry{tuiRoleError, "from/to replicas 必须为非负整数"})
+		return nil
+	}
+	gw, err := newGatewayClient(t.gateway, 30*time.Second)
+	if err != nil {
+		t.entries = append(t.entries, tuiEntry{tuiRoleError, err.Error()})
+		return nil
+	}
+	id := "tui-" + sessionID(t)
+	out, err := gw.call(t.cmd.Context(), "request_change", map[string]any{
+		"session_ref": id, "idempotency_key": id + "-" + time.Now().UTC().Format("20060102T150405.000000000"),
+		"intent": "scale " + ns + "/" + name + " to " + strconv.Itoa(to), "source": "human",
+		"requested_by": t.actor, "tool": "scale_deployment", "verb": "patch", "resource": "deployments",
+		"namespace": ns, "args": map[string]any{"namespace": ns, "name": name, "replicas": to, "from_replicas": from},
+		"dry_run_passed": false, "blast_radius_pods": 1,
+	})
+	if err != nil {
+		t.entries = append(t.entries, tuiEntry{tuiRoleError, "request_change: " + err.Error()})
+		return nil
+	}
+	line := fmt.Sprintf("cr=%v allow=%v requires_approval=%v reject=%v created=%v",
+		out["cr_name"], out["allow"], out["requires_approval"], out["reject"], out["created"])
+	t.entries = append(t.entries, tuiEntry{tuiRoleAegis, line})
+	if out["requires_approval"] == true {
+		t.entries = append(t.entries, tuiEntry{tuiRoleSystem, "approve with: /approve " + fmt.Sprint(out["cr_name"])})
+	}
+	return nil
+}
+
+func (t *tui) approveCR(fields []string) error {
+	if len(fields) < 2 {
+		t.entries = append(t.entries, tuiEntry{tuiRoleError, "usage: " + fields[0] + " <cr>"})
+		return nil
+	}
+	approve := fields[0] == "/approve"
+	cr := fields[1]
+	if !strings.Contains(cr, "/") {
+		cr = "kagent/" + cr
+	}
+	actor := t.actor
+	if len(fields) >= 3 && strings.TrimSpace(fields[2]) != "" {
+		actor = strings.TrimSpace(fields[2])
+	}
+	cmd := newApproveCmd(approve)
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
+	cmd.SetContext(t.cmd.Context())
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	cmd.SetArgs([]string{"--endpoint", t.approval, "--cr", cr, "--actor", actor, "--note", "tui"})
+	if err := cmd.Execute(); err != nil {
+		t.entries = append(t.entries, tuiEntry{tuiRoleError, err.Error() + " " + strings.TrimSpace(buf.String())})
+		return nil
+	}
+	t.entries = append(t.entries, tuiEntry{tuiRoleSystem, strings.TrimSpace(buf.String())})
+	return nil
+}
+
+func (t *tui) crStatus(fields []string) error {
+	if len(fields) < 2 {
+		t.entries = append(t.entries, tuiEntry{tuiRoleError, "usage: /cr <cr-name>"})
+		return nil
+	}
+	name := strings.TrimPrefix(fields[1], "kagent/")
+	cfg, err := clientcmd.BuildConfigFromFlags("", t.kubeconfig)
+	if err != nil {
+		t.entries = append(t.entries, tuiEntry{tuiRoleError, "kubeconfig: " + err.Error()})
+		return nil
+	}
+	dc, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		t.entries = append(t.entries, tuiEntry{tuiRoleError, "client: " + err.Error()})
+		return nil
+	}
+	u, err := dc.Resource(schema.GroupVersionResource{Group: "aegis.dev", Version: "v1alpha1", Resource: "changerequests"}).Namespace("kagent").Get(t.cmd.Context(), name, metav1.GetOptions{})
+	if err != nil {
+		t.entries = append(t.entries, tuiEntry{tuiRoleError, err.Error()})
+		return nil
+	}
+	state, _, _ := unstructured.NestedString(u.Object, "status", "state")
+	approval, _, _ := unstructured.NestedString(u.Object, "status", "approval", "state")
+	approver, _, _ := unstructured.NestedString(u.Object, "status", "approval", "approver")
+	t.entries = append(t.entries, tuiEntry{tuiRoleSystem, fmt.Sprintf("%s state=%s approval=%s approver=%s", name, state, approval, approver)})
+	return nil
+}
+
 func sessionID(t *tui) string {
 	if t == nil || t.sess == nil {
 		return "none"
@@ -501,5 +635,5 @@ func sessionID(t *tui) string {
 }
 
 func helpText() string {
-	return "commands: /scan [ns] [json|text|sarif] · /status · /agent <url> · /namespace <ns> · /sessions · /resume <id> · /new · /help · /exit"
+	return "commands: /scan [ns] [json|text|sarif] · /status · /agent <url> · /namespace <ns> · /sessions · /resume <id> · /new · /change <ns> <deploy> <from> <to> · /approve <cr> [approver] · /deny <cr> [approver] · /cr <cr> · /help · /exit"
 }

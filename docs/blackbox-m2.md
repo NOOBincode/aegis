@@ -366,6 +366,17 @@ TTY 下会进入全屏 TUI；管道/非 TTY 自动回退行式 session。`AEGIS_
 
 当前没有 LLM key，因此 Agent 对话会失败；但**本地 scan 在会话里可用**：
 
+TUI 还提供写意图/审批命令（需 gatekeeper + approval 的本地 port-forward）：
+
+```text
+/change <ns> <deployment> <from_replicas> <to_replicas>
+/approve <cr> [approver]
+/deny <cr> [approver]
+/cr <cr>
+```
+
+`/change` 只调用 gatekeeper `request_change`；`/approve` 需要 `AEGIS_APPROVAL_SECRET`（从集群 Secret 注入，不落仓库/日志）。
+
 ```text
 aegis> /scan aegis-eval
 # 或
