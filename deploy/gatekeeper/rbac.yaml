@@ -1,0 +1,38 @@
+# gatekeeper MCP/审批服务的 in-cluster 最小权限。
+# 只允许：读 GuardrailPolicy、创建/读 ChangeRequest、更新其 status；不写业务资源。
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gatekeeper
+  namespace: kagent
+  labels: {aegis.dev/component: gatekeeper}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aegis-gatekeeper
+  labels: {aegis.dev/component: gatekeeper}
+rules:
+  - apiGroups: ["aegis.dev"]
+    resources: ["guardrailpolicies"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["aegis.dev"]
+    resources: ["changerequests"]
+    verbs: ["get", "list", "watch", "create"]
+  - apiGroups: ["aegis.dev"]
+    resources: ["changerequests/status"]
+    verbs: ["get", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aegis-gatekeeper
+  labels: {aegis.dev/component: gatekeeper}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aegis-gatekeeper
+subjects:
+  - kind: ServiceAccount
+    name: gatekeeper
+    namespace: kagent

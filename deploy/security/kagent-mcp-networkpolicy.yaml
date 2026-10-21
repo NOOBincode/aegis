@@ -19,7 +19,7 @@ spec:
     matchExpressions:
       - key: app.kubernetes.io/name
         operator: In
-        values: ["scan", "k8s-read", "prom", "logs", "events"]
+        values: ["scan", "k8s-read", "prom", "logs", "events", "gatekeeper"]
   policyTypes: ["Ingress"]
   ingress:
     - from:

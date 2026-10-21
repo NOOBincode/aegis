@@ -1,0 +1,38 @@
+# gatekeeper 作为 kagent MCPServer 暴露 request_change（写意图入口）。
+# 审批与 MCP 同进程：MCP :8086（kagent 访问），审批 :8085（本地 CLI 经 Service port-forward）。
+apiVersion: kagent.dev/v1alpha1
+kind: MCPServer
+metadata:
+  name: gatekeeper
+  namespace: kagent
+  labels: {app: gatekeeper, aegis.dev/component: gatekeeper}
+spec:
+  transportType: http
+  deployment:
+    image: aegis/gatekeeper:0.1.0
+    imagePullPolicy: IfNotPresent
+    port: 8086
+    serviceAccountName: gatekeeper
+    args:
+      - "--approval-addr=:8085"
+      - "--mcp-addr=:8086"
+    # MCP-only 形态：审批端点无 secret 时不启动；需要审批时另挂 Secret 的 Deployment/独立进程。
+  httpTransport:
+    path: /mcp
+    targetPort: 8086
+  timeout: 30s
+---
+# 仅用于本地 CLI port-forward；不暴露 8085 为公网入口由 NetworkPolicy 约束。
+apiVersion: v1
+kind: Service
+metadata:
+  name: gatekeeper-approval
+  namespace: kagent
+  labels: {app: gatekeeper, aegis.dev/component: gatekeeper}
+spec:
+  selector:
+    app.kubernetes.io/name: gatekeeper
+  ports:
+    - name: approval
+      port: 8085
+      targetPort: 8085

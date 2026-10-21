@@ -14,7 +14,7 @@ GO_MODULES := . \
 	mcp-servers/runbook \
 	mcp-servers/scan
 
-.PHONY: help lint test test-integration build mcp-images mcp-up security-smoke redteam-netpol mtls-certs check-skills check-secrets ai-up ai-down m1-demo up down clean
+.PHONY: help lint test test-integration build mcp-images mcp-up security-smoke redteam-netpol mtls-certs gatekeeper-up check-skills check-secrets ai-up ai-down m1-demo up down clean
 
 help: ## 目标一览
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -50,6 +50,9 @@ redteam-netpol: ## 网络红队：5 个 MCP server 的 default 阻断/kagent 放
 
 mtls-certs: ## 生成本地 mTLS CA/server/client 到 .cache/mtls（不提交）
 	bash scripts/gen-mtls.sh
+
+gatekeeper-up: ## 部署 gatekeeper MCPServer（request_change；MCP-only 形态）
+	bash scripts/gatekeeper-up.sh
 
 check-skills: ## 开发期 Skill 污染检查（lock 覆盖/symlink/可执行资产/安装型管道）
 	bash scripts/check-skills.sh
