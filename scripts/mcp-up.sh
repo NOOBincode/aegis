@@ -81,7 +81,7 @@ if [ "$WITH_NETPOL" -eq 1 ]; then
 fi
 
 if [ "$WITH_AGENT" -eq 1 ]; then
-  apply deploy/agent/modelconfig.yaml deploy/agent/agent.yaml
+  apply deploy/agent/modelconfig.yaml deploy/agent/agent.yaml deploy/agent/operator.yaml
   info apply "component=aegis-diagnoser" "hint=LLM 端点未就绪时 Agent 会处于不可用；用 kubectl -n kagent get agents 观察"
 fi
 

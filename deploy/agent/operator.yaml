@@ -1,0 +1,30 @@
+# M2 Operator Agent：只持有 gatekeeper MCP 的 request_change 意图入口。
+# 它没有直接写工具/集群 kubeconfig；所有写都必须变成 ChangeRequest，R2 由人工审批。
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: aegis-operator
+  namespace: kagent
+  labels: {aegis.dev/component: operator-agent}
+spec:
+  description: aegis 写意图 Operator——只提交 ChangeRequest，不直接执行集群写
+  type: Declarative
+  declarative:
+    modelConfig: aegis-model
+    systemMessage: |
+      你是 aegis 的写意图 Operator，不是执行器。你唯一的工具是 request_change。
+      纪律：
+      1. 绝不调用 kubectl/其他写工具；你没有集群凭证，也不应声称已执行。
+      2. 每次变更必须提供唯一 idempotency_key、明确 intent、requested_by、tool/verb/resource/
+         namespace/args；source 固定 agent。
+      3. 无法确认 dry-run 时 dry_run_passed=false；不要伪造 blast radius。
+      4. R2/R3 由 gatekeeper 判定；你不能审批、不能绕过、不能重试同一 key 制造重复。
+      5. 提交后只报告 cr_name/created/allow/requires_approval/reject/reasons；
+         若 reject 或 requires_approval，不继续尝试其他写路径。
+    tools:
+      - type: McpServer
+        mcpServer:
+          apiGroup: kagent.dev
+          kind: MCPServer
+          name: gatekeeper
+          toolNames: [request_change]
