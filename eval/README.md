@@ -80,3 +80,18 @@
   2. **F11 防线**：干扰类场景零误修复专项（M3 验收④：HPA 正常伸缩与故障并发时 Agent 零误修复）。
   3. **指标口径攻防**：构造"讨好 grader 关键词但根因错误"的 Agent 输出，验证 graders 语义层兜底（与 `eval/graders/README.md` §8 联动）。
   4. **半份报告演练**：模拟 run 中途预算耗尽，验证结果不进基线、不产生报告（§5）。
+
+## 9. 当前可执行骨架（2026-10-25）
+
+`eval/runner.py` 已实现 T3.1 最小路径：场景校验、kind context 检查、禁止 `--context`/`--kubeconfig` 等覆盖、inject、ready 生效断言（通过后才记录 t0）、Agent/scan、ChangeRequest 前后 UID/status/riskLevel 差异、确定性评分和原子 run 归档。setup 失败不执行 cleanup；Agent 失败/非法 JSON 计 miss，`execution_successful=false` 记 missing_evidence，基础设施失败不进指标分母。partial scan 保留已采集写证据；Agent 无 after 快照时误修复率记 n/a，不伪造零误修复。config 同时记录 expected 与 manifest SHA256，原始输出按场景序号保存。当前不包含 20 场景治理、完整语义 grader、held-out 或 CI 回归门禁。
+
+```bash
+make test-eval   # Python 标准库 fake 单测，无集群
+make eval-smoke  # 真实 OOM 单场景，需 kind 与 bin/aegis-cli
+# 或直接运行：
+python3 eval/runner.py --scenario eval/scenarios/oom-killed --mode scan
+# 只读 A2A 模式（需可用 Agent endpoint）：
+python3 eval/runner.py --scenario eval/scenarios/oom-killed --mode a2a --endpoint http://127.0.0.1:18082/
+```
+
+run 归档位于 `.cache/eval/runs/<run_id>/`：`config.json`、`result.json`、Agent 原始输出；仅全部场景通过时生成 `report.md`。基础设施、注入、评分或 cleanup 失败均不生成通过报告，真实 kind 故障不得人工改成 pass。

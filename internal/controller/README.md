@@ -11,7 +11,7 @@ reconcile 层是 ChangeRequest / GuardrailPolicy / SchedulingHint 三个 CRD 与
 职责：
 
 1. Watch ChangeRequest / GuardrailPolicy（+ M4 的 SchedulingHint，未 go 不实现）事件并触发 reconcile。
-2. 按 `status.state` 分发到对应分支，调用 `internal/risk`、`internal/policy`、`internal/approval`、`internal/rollback`、`internal/breaker`、`internal/authority`、`internal/session` 的 service。
+2. 按 `status.state` 分发到对应分支，调用 `internal/risk`、`internal/policy`、`internal/approval`、`internal/rollback`、`internal/breaker`、`internal/authority`、`internal/session` 的 service；AwaitingApproval 同时消费 ApprovalDecision，且只由本层回写 `status.approval`。
 3. 写回 status（含 `executedOps`、`verification`、`rollback`、`abort`）、维护 finalizer、更新 `status.auditRef`。
 4. 在途恢复与超时巡检：重启/leader 切换后重入 Executing/Verifying，核对集群实际状态后续作/回滚/中止；Executing 超时未推进即告警（F14）。
 5. leader election 保证单写者（设计文档 §4.2.5-1：多副本 standby）。

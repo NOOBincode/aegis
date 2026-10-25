@@ -1,8 +1,8 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,16 +10,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/tools/clientcmd"
+	"golang.org/x/term"
 )
 
-// tui 是全屏终端视图；默认在 TTY 下启用，AEGIS_TUI=force 可在管道/截图环境强制渲染。
-// 它只负责呈现与输入路由，scan/Agent 仍走同一 CLI 函数，不新增业务路径。
 type tui struct {
 	cmd           *cobra.Command
 	out           io.Writer
@@ -32,17 +30,51 @@ type tui struct {
 	kubeconfig    string
 	width         int
 	height        int
+	fixedWidth    bool
+	fixedHeight   bool
 	entries       []tuiEntry
 	status        string
 	store         *sessionStore
 	sess          *sessionRecord
 	storageErr    string
 	resumePending bool
+	pendingChange *tuiChangeIntent
+	agentCancel   context.CancelFunc
+	agentRunning  bool
+	agentSeq      uint64
+	actionCancel  context.CancelFunc
+	actionRunning bool
+	actionSeq     uint64
+	hasActivity   bool
+	input         textinput.Model
+	viewport      viewport.Model
+	spinner       spinner.Model
+	styles        tuiStyles
 }
 
 type tuiEntry struct {
 	role string
 	text string
+}
+
+type tuiChangeIntent struct {
+	namespace      string
+	name           string
+	from           int
+	to             int
+	idempotencyKey string
+	attempted      bool
+}
+
+type agentResultMsg struct {
+	id   uint64
+	text string
+	err  error
+}
+
+type actionResultMsg struct {
+	id     uint64
+	output tuiActionOutput
 }
 
 const (
@@ -53,19 +85,16 @@ const (
 )
 
 func chooseInteractive(cmd *cobra.Command) error {
-	if os.Getenv("AEGIS_TUI") == "force" || isTerminal(cmd.OutOrStdout()) {
+	isTTY := isTerminal(cmd.InOrStdin()) && isTerminal(cmd.OutOrStdout())
+	if os.Getenv("AEGIS_TUI") == "force" || isTTY {
 		return newTUI(cmd).run()
 	}
 	return newSession(cmd).run()
 }
 
-func isTerminal(w io.Writer) bool {
-	f, ok := w.(*os.File)
-	if !ok {
-		return false
-	}
-	st, err := f.Stat()
-	return err == nil && st.Mode()&os.ModeCharDevice != 0
+func isTerminal(v any) bool {
+	f, ok := v.(*os.File)
+	return ok && term.IsTerminal(int(f.Fd()))
 }
 
 func newTUI(cmd *cobra.Command) *tui {
@@ -73,18 +102,9 @@ func newTUI(cmd *cobra.Command) *tui {
 	if endpoint == "" {
 		endpoint = "http://127.0.0.1:18082/"
 	}
-	kc := strings.TrimSpace(os.Getenv("AEGIS_KUBECONFIG"))
-	if kc == "" {
-		kc = defaultKubeconfig()
-	}
-	w, h := 100, 30
-	_, _ = fmt.Sscanf(os.Getenv("AEGIS_TUI_WIDTH"), "%d", &w)
-	_, _ = fmt.Sscanf(os.Getenv("AEGIS_TUI_HEIGHT"), "%d", &h)
-	if w < 60 {
-		w = 60
-	}
-	if h < 16 {
-		h = 16
+	kubeconfig := strings.TrimSpace(os.Getenv("AEGIS_KUBECONFIG"))
+	if kubeconfig == "" {
+		kubeconfig = defaultKubeconfig()
 	}
 	gateway := strings.TrimSpace(os.Getenv("AEGIS_GATEKEEPER_ENDPOINT"))
 	if gateway == "" {
@@ -98,533 +118,448 @@ func newTUI(cmd *cobra.Command) *tui {
 	if actor == "" {
 		actor = "tui-user"
 	}
-	t := &tui{cmd: cmd, out: cmd.OutOrStdout(), in: cmd.InOrStdin(), endpoint: endpoint,
-		gateway: gateway, approval: approval, actor: actor,
-		namespace: os.Getenv("AEGIS_NAMESPACE"), kubeconfig: kc, width: w, height: h, status: "ready"}
-	t.entries = append(t.entries,
-		tuiEntry{tuiRoleSystem, "security operations console · read-only by default"},
-		tuiEntry{tuiRoleSystem, "Type a request, or use /scan /status /agent /namespace /help /exit."},
-	)
-	if st, err := newSessionStore(); err != nil {
-		t.storageErr = err.Error()
-		t.entries = append(t.entries, tuiEntry{tuiRoleError, "session storage unavailable: " + err.Error()})
-	} else {
-		t.store = st
-		t.sess = newSessionRecord(endpoint, t.namespace)
-		t.sess.Entries = t.entries
-		_ = t.store.save(t.sess)
+	width, fixedWidth := tuiDimension("AEGIS_TUI_WIDTH", 100)
+	height, fixedHeight := tuiDimension("AEGIS_TUI_HEIGHT", 30)
+	t := &tui{
+		cmd: cmd, out: cmd.OutOrStdout(), in: cmd.InOrStdin(),
+		endpoint: endpoint, gateway: gateway, approval: approval, actor: actor,
+		namespace: os.Getenv("AEGIS_NAMESPACE"), kubeconfig: kubeconfig,
+		width: width, height: height, fixedWidth: fixedWidth, fixedHeight: fixedHeight,
+		status: "idle", styles: newTUIStyles(),
 	}
+	t.entries = []tuiEntry{
+		{role: tuiRoleSystem, text: "Welcome to Aegis. Ask a read-only question or type /help."},
+		{role: tuiRoleSystem, text: "Chat is read-only. Change intents always use the guarded approval flow."},
+	}
+	if store, err := newSessionStore(); err != nil {
+		t.storageErr = err.Error()
+		t.entries = append(t.entries, tuiEntry{role: tuiRoleError, text: "session storage unavailable: " + err.Error()})
+	} else {
+		t.store = store
+		t.sess = newSessionRecord(endpoint, t.namespace)
+	}
+
+	t.input = textinput.New()
+	t.input.Prompt = "> "
+	t.input.Placeholder = "Ask Aegis or type /help"
+	t.input.CharLimit = 4096
+	t.input.PromptStyle = t.styles.accent
+	t.input.PlaceholderStyle = t.styles.muted
+	t.viewport = viewport.New(width, height-6)
+	t.spinner = spinner.New(spinner.WithSpinner(spinner.Dot), spinner.WithStyle(t.styles.warning))
+	t.resize(width, height)
 	return t
 }
 
-func (t *tui) run() error {
-	_, _ = fmt.Fprint(t.out, "\033[?1049h\033[?25l\033[2J")
-	defer func() { _, _ = fmt.Fprint(t.out, "\033[?25h\033[?1049l") }()
-	t.render()
-	sc := bufio.NewScanner(t.in)
-	sc.Buffer(make([]byte, 64*1024), 1<<20)
-	for {
-		if !sc.Scan() {
-			return sc.Err()
-		}
-		line := strings.TrimSpace(sc.Text())
-		if line == "" {
-			continue
-		}
-		t.entries = append(t.entries, tuiEntry{tuiRoleYou, line})
-		if err := t.handle(line); err != nil {
-			t.entries = append(t.entries, tuiEntry{tuiRoleError, err.Error()})
-		}
-		t.persist()
-		t.render()
-		if line == "/exit" || line == "/quit" {
-			return nil
-		}
+func tuiDimension(name string, fallback int) (int, bool) {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback, false
 	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		return fallback, false
+	}
+	return value, true
 }
 
-func (t *tui) handle(line string) error {
+func (t *tui) Init() tea.Cmd {
+	return tea.Batch(t.input.Focus(), tea.WindowSize())
+}
+
+func (t *tui) run() error {
+	ctx := t.cmd.Context()
+	opts := []tea.ProgramOption{
+		tea.WithAltScreen(),
+		tea.WithInput(t.in),
+		tea.WithOutput(t.out),
+	}
+	if ctx != nil {
+		opts = append(opts, tea.WithContext(ctx))
+	}
+	final, err := tea.NewProgram(t, opts...).Run()
+	if err != nil {
+		if errors.Is(err, tea.ErrInterrupted) || (ctx != nil && ctx.Err() != nil) {
+			return nil
+		}
+		return fmt.Errorf("run tui: %w", err)
+	}
+	if model, ok := final.(*tui); ok {
+		return model.dump()
+	}
+	return t.dump()
+}
+
+func (t *tui) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		width, height := msg.Width, msg.Height
+		if t.fixedWidth {
+			width = t.width
+		}
+		if t.fixedHeight {
+			height = t.height
+		}
+		t.resize(width, height)
+		return t, nil
+	case agentResultMsg:
+		t.finishAgent(msg)
+		t.persist()
+		t.refreshTranscript(false)
+		return t, nil
+	case actionResultMsg:
+		t.finishAction(msg)
+		t.persist()
+		t.refreshTranscript(false)
+		return t, nil
+	case spinner.TickMsg:
+		if !t.busy() {
+			return t, nil
+		}
+		var cmd tea.Cmd
+		t.spinner, cmd = t.spinner.Update(msg)
+		return t, cmd
+	case tea.KeyMsg:
+		switch msg.Type {
+		case tea.KeyCtrlC:
+			t.cancelRunning()
+			t.persist()
+			return t, tea.Quit
+		case tea.KeyEsc:
+			if t.busy() || t.pendingChange != nil {
+				t.cancelPending()
+				t.persist()
+				t.refreshTranscript(false)
+			}
+			return t, nil
+		case tea.KeyEnter, tea.KeyCtrlJ:
+			return t.submit()
+		case tea.KeyUp, tea.KeyDown, tea.KeyPgUp, tea.KeyPgDown:
+			var cmd tea.Cmd
+			t.viewport, cmd = t.viewport.Update(msg)
+			return t, cmd
+		}
+	}
+	var cmd tea.Cmd
+	t.input, cmd = t.input.Update(msg)
+	return t, cmd
+}
+
+func (t *tui) submit() (tea.Model, tea.Cmd) {
+	line := strings.TrimSpace(t.input.Value())
+	if line == "" {
+		return t, nil
+	}
+	t.hasActivity = true
+	t.input.Reset()
+	t.entries = append(t.entries, tuiEntry{role: tuiRoleYou, text: line})
+	cmd, err := t.handle(line)
+	if errors.Is(err, errSessionExit) {
+		t.refreshTranscript(true)
+		return t, tea.Quit
+	}
+	if err != nil {
+		t.entries = append(t.entries, tuiEntry{role: tuiRoleError, text: err.Error()})
+	}
+	t.persist()
+	t.refreshTranscript(true)
+	if cmd != nil {
+		cmd = tea.Batch(cmd, t.spinner.Tick)
+	}
+	return t, cmd
+}
+
+func (t *tui) handle(line string) (tea.Cmd, error) {
+	fields := strings.Fields(line)
+	if len(fields) == 0 {
+		return nil, nil
+	}
+	if t.busy() {
+		switch fields[0] {
+		case "/cancel", "/exit", "/quit", "/help", "/status":
+		default:
+			t.entries = append(t.entries, tuiEntry{role: tuiRoleError, text: "operation in progress · use Esc or /cancel"})
+			return nil, nil
+		}
+	}
 	if strings.HasPrefix(line, "/") {
-		fields := strings.Fields(line)
 		switch fields[0] {
 		case "/help":
-			t.entries = append(t.entries, tuiEntry{tuiRoleSystem, helpText()})
-			return nil
+			t.entries = append(t.entries, tuiEntry{role: tuiRoleSystem, text: helpText()})
 		case "/status":
-			id := "no-session"
-			if t.sess != nil {
-				id = t.sess.ID
-			}
-			t.entries = append(t.entries, tuiEntry{tuiRoleSystem, fmt.Sprintf("session=%s  agent=%s  gateway=%s  approval=%s  namespace=%s", id, t.endpoint, t.gateway, t.approval, tuiNamespace(t.namespace))})
-			return nil
+			t.entries = append(t.entries, tuiEntry{role: tuiRoleSystem, text: fmt.Sprintf(
+				"session=%s  agent=%s  gateway=%s  approval=%s  namespace=%s  state=%s",
+				sessionID(t), t.endpoint, t.gateway, t.approval, tuiNamespace(t.namespace), t.status,
+			)})
 		case "/sessions":
-			t.entries = append(t.entries, tuiEntry{tuiRoleSystem, t.sessionListText()})
-			return nil
+			t.entries = append(t.entries, tuiEntry{role: tuiRoleSystem, text: t.sessionListText()})
 		case "/resume":
-			t.persist()
+			if !t.persist() {
+				t.entries = append(t.entries, tuiEntry{role: tuiRoleError, text: "session switch aborted: current transcript was not saved"})
+				return nil, nil
+			}
 			if len(fields) < 2 {
-				t.entries = append(t.entries, tuiEntry{tuiRoleSystem, t.sessionListText()})
-				return nil
+				t.entries = append(t.entries, tuiEntry{role: tuiRoleSystem, text: t.sessionListText()})
+				return nil, nil
 			}
 			if err := t.resumeSession(fields[1]); err != nil {
-				t.entries = append(t.entries, tuiEntry{tuiRoleError, err.Error()})
-				return nil
+				t.entries = append(t.entries, tuiEntry{role: tuiRoleError, text: err.Error()})
+				return nil, nil
 			}
-			t.entries = append(t.entries, tuiEntry{tuiRoleSystem, "resumed session " + t.sess.ID + " · " + t.sess.Title})
-			return nil
+			t.pendingChange = nil
+			t.entries = append(t.entries, tuiEntry{role: tuiRoleSystem, text: "resumed session " + t.sess.ID + " · " + t.sess.Title})
 		case "/new":
-			t.persist()
+			if !t.persist() {
+				t.entries = append(t.entries, tuiEntry{role: tuiRoleError, text: "new session aborted: current transcript was not saved"})
+				return nil, nil
+			}
 			if t.store != nil {
 				t.sess = newSessionRecord(t.endpoint, t.namespace)
-				t.sess.Entries = t.entries
-				t.entries = []tuiEntry{
-					{tuiRoleSystem, "security operations console · read-only by default"},
-					{tuiRoleSystem, "new session " + t.sess.ID},
-				}
-				t.sess.Entries = t.entries
-				t.resumePending = false
-				_ = t.store.save(t.sess)
+			} else {
+				t.sess = nil
 			}
-			return nil
+			t.entries = []tuiEntry{{role: tuiRoleSystem, text: "new session " + sessionID(t) + " · type /help for commands"}}
+			t.resumePending = false
+			t.pendingChange = nil
 		case "/agent":
-			if len(fields) < 2 {
-				t.entries = append(t.entries, tuiEntry{tuiRoleError, "usage: /agent <http(s)://host:port/>"})
-				return nil
+			if len(fields) != 2 || !validHTTPEndpoint(fields[1]) {
+				t.entries = append(t.entries, tuiEntry{role: tuiRoleError, text: "usage: /agent <http(s)://host:port/> (without credentials)"})
+				return nil, nil
 			}
 			t.endpoint = fields[1]
-			t.entries = append(t.entries, tuiEntry{tuiRoleSystem, "agent endpoint = " + t.endpoint})
-			return nil
+			t.entries = append(t.entries, tuiEntry{role: tuiRoleSystem, text: "agent endpoint = " + t.endpoint})
 		case "/namespace":
 			if len(fields) < 2 {
 				t.namespace = ""
-				t.entries = append(t.entries, tuiEntry{tuiRoleSystem, "namespace = ALL"})
 			} else {
 				t.namespace = fields[1]
-				t.entries = append(t.entries, tuiEntry{tuiRoleSystem, "namespace = " + t.namespace})
 			}
-			return nil
+			t.entries = append(t.entries, tuiEntry{role: tuiRoleSystem, text: "namespace = " + tuiNamespace(t.namespace)})
 		case "/scan":
-			return t.scan(strings.Join(fields[1:], " "))
+			action := t.newAction("scan")
+			action.args = strings.Join(fields[1:], " ")
+			return t.startAction(action), nil
 		case "/gatekeeper":
-			if len(fields) < 2 {
-				t.entries = append(t.entries, tuiEntry{tuiRoleSystem, "gatekeeper=" + t.gateway})
-				return nil
+			if len(fields) == 1 {
+				t.entries = append(t.entries, tuiEntry{role: tuiRoleSystem, text: "gatekeeper = " + t.gateway})
+				return nil, nil
+			}
+			if len(fields) != 2 || !validHTTPEndpoint(fields[1]) {
+				t.entries = append(t.entries, tuiEntry{role: tuiRoleError, text: "usage: /gatekeeper <http(s)://host:port/> (without credentials)"})
+				return nil, nil
 			}
 			t.gateway = fields[1]
-			t.entries = append(t.entries, tuiEntry{tuiRoleSystem, "gatekeeper=" + t.gateway})
-			return nil
+			t.entries = append(t.entries, tuiEntry{role: tuiRoleSystem, text: "gatekeeper = " + t.gateway})
 		case "/change":
-			return t.change(fields[1:])
-		case "/approve", "/deny":
-			return t.approveCR(fields)
-		case "/cr":
-			return t.crStatus(fields)
+			return t.startChange(fields[1:]), nil
+		case "/confirm":
+			if t.pendingChange == nil {
+				t.entries = append(t.entries, tuiEntry{role: tuiRoleSystem, text: "no pending change to confirm"})
+				return nil, nil
+			}
+			if t.pendingChange.idempotencyKey == "" {
+				t.pendingChange.idempotencyKey = t.newChangeKey()
+			}
+			return t.startAction(t.changeAction(*t.pendingChange)), nil
+		case "/cancel":
+			t.cancelPending()
+		case "/approve", "/deny", "/cr":
+			action := t.newAction(fields[0][1:])
+			action.fields = append([]string(nil), fields...)
+			return t.startAction(action), nil
 		case "/exit", "/quit":
-			return nil
+			return nil, errSessionExit
 		default:
-			t.entries = append(t.entries, tuiEntry{tuiRoleError, "unknown command " + fields[0] + " · /help"})
-			return nil
+			t.entries = append(t.entries, tuiEntry{role: tuiRoleError, text: "unknown command " + fields[0] + " · /help"})
 		}
+		return nil, nil
 	}
+
+	t.pendingChange = nil
 	if isScanLine(line) {
-		return t.scan(strings.TrimSpace(strings.TrimPrefix(strings.ToLower(line), "scan")))
+		action := t.newAction("scan")
+		action.args = strings.TrimSpace(strings.TrimPrefix(strings.ToLower(line), "scan"))
+		return t.startAction(action), nil
 	}
-	t.status = "thinking"
-	t.render()
-	sendText := line
-	if t.resumePending && t.sess != nil {
-		prev := t.entries
-		if len(prev) > 0 {
-			prev = prev[:len(prev)-1]
-		}
-		if ctx := buildResumeContext(t.sess.ID, prev); ctx != "" {
-			sendText = ctx + "\n\n" + line
-		}
-		t.resumePending = false
+	if ns, name, from, to, ok := parseScaleIntent(line); ok {
+		t.pendingChange = &tuiChangeIntent{namespace: ns, name: name, from: from, to: to, idempotencyKey: t.newChangeKey()}
+		t.entries = append(t.entries, tuiEntry{role: tuiRoleSystem, text: fmt.Sprintf(
+			"scale preview: %s/%s replicas %d -> %d\nNo request sent. /confirm to submit through gatekeeper; Esc or /cancel to discard.",
+			ns, name, from, to,
+		)})
+		return nil, nil
 	}
-	text, err := sendA2AMessage(t.cmd.Context(), t.endpoint, 240*time.Second, sendText)
-	t.status = "ready"
-	if err != nil {
-		t.entries = append(t.entries, tuiEntry{tuiRoleError, "agent unavailable: " + err.Error() + " · /scan works locally"})
-		return nil
-	}
-	t.entries = append(t.entries, tuiEntry{tuiRoleAegis, text})
-	return nil
+	return t.startAgent(line), nil
 }
 
-func (t *tui) scan(args string) error {
-	ns := t.namespace
-	format := ""
-	fields := strings.Fields(args)
-	for i := 0; i < len(fields); i++ {
-		a := fields[i]
-		switch {
-		case (a == "-n" || a == "--namespace") && i+1 < len(fields):
-			ns = fields[i+1]
-			i++
-		case strings.HasPrefix(a, "--namespace="):
-			ns = strings.TrimPrefix(a, "--namespace=")
-		case a == "json" || a == "text" || a == "sarif":
-			format = a
-		case !strings.HasPrefix(a, "-"):
-			ns = a
-		}
-	}
-	cmdArgs := []string{"--kubeconfig", t.kubeconfig}
-	if ns != "" {
-		cmdArgs = append(cmdArgs, "--namespace", ns)
-	}
-	if format != "" {
-		cmdArgs = append(cmdArgs, "--format", format)
-	}
-	var buf bytes.Buffer
-	scanCmd := newScanCmd()
-	scanCmd.SetContext(t.cmd.Context())
-	scanCmd.SetOut(&buf)
-	scanCmd.SetErr(&buf)
-	scanCmd.SetArgs(cmdArgs)
-	if err := scanCmd.Execute(); err != nil {
-		t.entries = append(t.entries, tuiEntry{tuiRoleError, "scan failed: " + err.Error()})
-		return nil
-	}
-	t.entries = append(t.entries, tuiEntry{tuiRoleAegis, compactScan(buf.String())})
-	return nil
-}
-
-func compactScan(out string) string {
-	// TUI is English by default so terminal screenshots do not depend on CJK fonts.
-	// Keep the deterministic counts, drop raw Chinese finding lines.
-	lines := strings.Split(strings.TrimSpace(out), "\n")
-	for _, l := range lines {
-		if strings.Contains(l, "扫描 Pod") {
-			replaced := strings.NewReplacer(
-				"扫描 Pod", "Scanned ",
-				" 个 · 命中 ", " pods · ",
-				" 条（严重 ", " findings (critical ",
-				" / 警告 ", " / warning ",
-				" / 提示 ", " / info ",
-				"）· 规则结案 ", ") · rule-closed ",
-				" 条", "",
-			).Replace(strings.TrimSpace(l))
-			return replaced
-		}
-	}
-	return "scan completed: no findings"
-}
-
-func asciiUI(s string) string {
-	// The TUI itself is ASCII-first so screenshots do not depend on a CJK font.
-	// Real terminal users still receive the Agent's original text in the plain
-	// session; the full-color TUI intentionally normalizes punctuation.
-	repl := strings.NewReplacer(
-		"·", "|", "—", "-", "–", "-", "…", "...", "“", "\"", "”", "\"",
-		"‘", "'", "’", "'", "→", "->", "✓", "[ok]", "⚠", "!", "｜", "|",
-	)
-	return repl.Replace(s)
-}
-
-func tuiNamespace(ns string) string {
-	if ns == "" {
-		return "ALL"
-	}
-	return ns
-}
-
-func (t *tui) render() {
-	var b strings.Builder
-	plain := &bytes.Buffer{}
-	line := strings.Repeat("-", t.width)
-	write := func(s string) { b.WriteString(s); b.WriteByte('\n') }
-	plainWrite := func(s string) { plain.WriteString(s); plain.WriteByte('\n') }
-
-	title := " AEGIS  //  SECURITY OPERATIONS CONSOLE"
-	tag := "[ READ-ONLY ]"
-	head := pad(title, t.width-len(tag)) + tag
-	write("\033[36;1m" + head + "\033[0m")
-	plainWrite(head)
-	status := fmt.Sprintf(" session %s  |  cluster kind-aegis  |  ns %s  |  agent %s", sessionID(t), tuiNamespace(t.namespace), t.status)
-	write("\033[2m" + pad(status, t.width) + "\033[0m")
-	plainWrite(pad(status, t.width))
-	write("\033[2m" + line + "\033[0m")
-	plainWrite(line)
-
-	bodyH := t.height - 6
-	if bodyH < 8 {
-		bodyH = 8
-	}
-	mainW := t.width - 32
-	if mainW < 30 {
-		mainW = 30
-	}
-	var left []string
-	var leftPlain []string
-	for _, e := range t.entries {
-		prefix, color := "  SYS  | ", "\033[2m"
-		switch e.role {
-		case tuiRoleYou:
-			prefix, color = "  YOU  | ", "\033[32;1m"
-		case tuiRoleAegis:
-			prefix, color = "  AEGIS| ", "\033[37m"
-		case tuiRoleError:
-			prefix, color = "  ERR  | ", "\033[31;1m"
-		}
-		for _, l := range wrapText(asciiUI(e.text), mainW-10) {
-			left = append(left, color+prefix+l+"\033[0m")
-			leftPlain = append(leftPlain, prefix+l)
-		}
-	}
-	if len(left) > bodyH {
-		left = left[len(left)-bodyH:]
-		leftPlain = leftPlain[len(leftPlain)-bodyH:]
-	}
-	for len(left) < bodyH {
-		left = append([]string{""}, left...)
-		leftPlain = append([]string{""}, leftPlain...)
-	}
-
-	side := []string{
-		"  QUICK START",
-		"  /scan [ns]",
-		"  /status",
-		"  /agent <url>",
-		"  /namespace <ns>",
-		"",
-		"  TARGET",
-		"  cluster  kind-aegis",
-		"  namespace " + tuiNamespace(t.namespace),
-		"",
-		"  CONNECTION",
-		"  agent " + shortEndpoint(t.endpoint),
-		"  gw    " + shortEndpoint(t.gateway),
-		"  appr  " + shortEndpoint(t.approval),
-		"  status " + t.status,
-		"",
-		"  SAFETY",
-		"  read-only console",
-		"  writes -> request_change",
-		"  R2 -> human approval",
-		"",
-		"  SESSION " + sessionID(t),
-		"  " + shortTitle(t.sessTitle()),
-		"  /sessions  /resume <id>",
-	}
-	for i := 0; i < bodyH; i++ {
-		l := ""
-		lp := ""
-		if i < len(left) {
-			l = left[i]
-			lp = leftPlain[i]
-		}
-		sp := mainW - len([]rune(lp))
-		if sp < 0 {
-			sp = 0
-		}
-		sideLine := ""
-		if i < len(side) {
-			sideLine = side[i]
-		}
-		row := l + strings.Repeat(" ", sp) + " | " + sideLine
-		plainRow := lp + strings.Repeat(" ", sp) + " | " + sideLine
-		write(row)
-		plainWrite(plainRow)
-	}
-	write("\033[2m" + line + "\033[0m")
-	plainWrite(line)
-	write("\033[2m /scan /status /sessions /resume /new /change /approve /cr /help /exit      writes: gatekeeper + approval\033[0m")
-	plainWrite(" /scan /status /sessions /resume /new /change /approve /cr /help /exit      writes: gatekeeper + approval")
-	write("\033[33;1m > \033[0m")
-	plainWrite(" > ")
-
-	_, _ = fmt.Fprint(t.out, b.String())
-	if path := os.Getenv("AEGIS_TUI_DUMP"); path != "" {
-		_ = os.WriteFile(path, plain.Bytes(), 0o600) //nolint:gosec // 显式调试截图路径
-	}
-}
-
-func visible(s string) string {
-	for {
-		i := strings.Index(s, "\033[")
-		if i < 0 {
-			return s
-		}
-		j := strings.IndexByte(s[i:], 'm')
-		if j < 0 {
-			return s[:i]
-		}
-		s = s[:i] + s[i+j+1:]
-	}
-}
-
-func pad(s string, n int) string {
-	r := []rune(s)
-	if len(r) > n {
-		return string(r[:n])
-	}
-	return s + strings.Repeat(" ", n-len(r))
-}
-
-func wrapText(s string, n int) []string {
-	if n < 8 {
-		n = 8
-	}
-	var out []string
-	for _, raw := range strings.Split(s, "\n") {
-		if raw == "" {
-			out = append(out, "")
-			continue
-		}
-		words := strings.Fields(raw)
-		line := ""
-		for _, w := range words {
-			if line == "" {
-				for len([]rune(w)) > n {
-					r := []rune(w)
-					out = append(out, string(r[:n]))
-					w = string(r[n:])
-				}
-				line = w
-				continue
-			}
-			if len([]rune(line))+1+len([]rune(w)) <= n {
-				line += " " + w
-				continue
-			}
-			out = append(out, line)
-			line = w
-			for len([]rune(line)) > n {
-				r := []rune(line)
-				out = append(out, string(r[:n]))
-				line = string(r[n:])
-			}
-		}
-		if line != "" {
-			out = append(out, line)
-		}
-	}
-	if len(out) == 0 {
-		return []string{""}
-	}
-	return out
-}
-
-func (t *tui) sessTitle() string {
-	if t == nil || t.sess == nil || t.sess.Title == "" {
-		return "new session"
-	}
-	return t.sess.Title
-}
-
-func shortTitle(s string) string {
-	r := []rune(s)
-	if len(r) > 26 {
-		return string(r[:25]) + "~"
-	}
-	return s
-}
-
-func shortEndpoint(endpoint string) string {
-	s := strings.TrimPrefix(strings.TrimPrefix(endpoint, "https://"), "http://")
-	s = strings.TrimSuffix(s, "/")
-	if len([]rune(s)) > 26 {
-		s = string([]rune(s)[:25]) + "~"
-	}
-	return s
-}
-
-func (t *tui) change(args []string) error {
+func (t *tui) startChange(args []string) tea.Cmd {
 	if len(args) != 4 {
-		t.entries = append(t.entries, tuiEntry{tuiRoleError, "usage: /change <namespace> <deployment> <from_replicas> <to_replicas>"})
+		t.entries = append(t.entries, tuiEntry{role: tuiRoleError, text: "usage: /change <namespace> <deployment> <from_replicas> <to_replicas>"})
 		return nil
 	}
-	ns, name := args[0], args[1]
 	from, err1 := strconv.Atoi(args[2])
 	to, err2 := strconv.Atoi(args[3])
 	if err1 != nil || err2 != nil || from < 0 || to < 0 {
-		t.entries = append(t.entries, tuiEntry{tuiRoleError, "from/to replicas 必须为非负整数"})
+		t.entries = append(t.entries, tuiEntry{role: tuiRoleError, text: "from/to replicas must be non-negative integers"})
 		return nil
 	}
-	gw, err := newGatewayClient(t.gateway, 30*time.Second)
-	if err != nil {
-		t.entries = append(t.entries, tuiEntry{tuiRoleError, err.Error()})
-		return nil
+	t.pendingChange = &tuiChangeIntent{
+		namespace: args[0], name: args[1], from: from, to: to, idempotencyKey: t.newChangeKey(),
 	}
-	id := "tui-" + sessionID(t)
-	out, err := gw.call(t.cmd.Context(), "request_change", map[string]any{
-		"session_ref": id, "idempotency_key": id + "-" + time.Now().UTC().Format("20060102T150405.000000000"),
-		"intent": "scale " + ns + "/" + name + " to " + strconv.Itoa(to), "source": "human",
-		"requested_by": t.actor, "tool": "scale_deployment", "verb": "patch", "resource": "deployments",
-		"namespace": ns, "args": map[string]any{"namespace": ns, "name": name, "replicas": to, "from_replicas": from},
-		"dry_run_passed": false, "blast_radius_pods": 1,
-	})
-	if err != nil {
-		t.entries = append(t.entries, tuiEntry{tuiRoleError, "request_change: " + err.Error()})
-		return nil
-	}
-	line := fmt.Sprintf("cr=%v allow=%v requires_approval=%v reject=%v created=%v",
-		out["cr_name"], out["allow"], out["requires_approval"], out["reject"], out["created"])
-	t.entries = append(t.entries, tuiEntry{tuiRoleAegis, line})
-	if out["requires_approval"] == true {
-		t.entries = append(t.entries, tuiEntry{tuiRoleSystem, "approve with: /approve " + fmt.Sprint(out["cr_name"])})
-	}
-	return nil
+	return t.startAction(t.changeAction(*t.pendingChange))
 }
 
-func (t *tui) approveCR(fields []string) error {
-	if len(fields) < 2 {
-		t.entries = append(t.entries, tuiEntry{tuiRoleError, "usage: " + fields[0] + " <cr>"})
-		return nil
-	}
-	approve := fields[0] == "/approve"
-	cr := fields[1]
-	if !strings.Contains(cr, "/") {
-		cr = "kagent/" + cr
-	}
-	actor := t.actor
-	if len(fields) >= 3 && strings.TrimSpace(fields[2]) != "" {
-		actor = strings.TrimSpace(fields[2])
-	}
-	cmd := newApproveCmd(approve)
-	cmd.SilenceUsage = true
-	cmd.SilenceErrors = true
-	cmd.SetContext(t.cmd.Context())
-	var buf bytes.Buffer
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-	cmd.SetArgs([]string{"--endpoint", t.approval, "--cr", cr, "--actor", actor, "--note", "tui"})
-	if err := cmd.Execute(); err != nil {
-		t.entries = append(t.entries, tuiEntry{tuiRoleError, err.Error() + " " + strings.TrimSpace(buf.String())})
-		return nil
-	}
-	t.entries = append(t.entries, tuiEntry{tuiRoleSystem, strings.TrimSpace(buf.String())})
-	return nil
+func (t *tui) changeAction(change tuiChangeIntent) tuiAction {
+	action := t.newAction("change")
+	action.change = change
+	return action
 }
 
-func (t *tui) crStatus(fields []string) error {
-	if len(fields) < 2 {
-		t.entries = append(t.entries, tuiEntry{tuiRoleError, "usage: /cr <cr-name>"})
+func (t *tui) newChangeKey() string {
+	return "tui-" + sessionID(t) + "-" + newSessionID()
+}
+
+func (t *tui) parentContext() context.Context {
+	if ctx := t.cmd.Context(); ctx != nil {
+		return ctx
+	}
+	return context.Background()
+}
+
+func (t *tui) startAgent(line string) tea.Cmd {
+	if t.busy() {
+		t.entries = append(t.entries, tuiEntry{role: tuiRoleError, text: "another operation is already in progress"})
 		return nil
 	}
-	name := strings.TrimPrefix(fields[1], "kagent/")
-	cfg, err := clientcmd.BuildConfigFromFlags("", t.kubeconfig)
-	if err != nil {
-		t.entries = append(t.entries, tuiEntry{tuiRoleError, "kubeconfig: " + err.Error()})
+	sendText := line
+	if t.resumePending && t.sess != nil {
+		prev := t.entries
+		if len(prev) > 0 && prev[len(prev)-1].role == tuiRoleYou && prev[len(prev)-1].text == line {
+			prev = prev[:len(prev)-1]
+		}
+		if resumeCtx := buildResumeContext(t.sess.ID, prev); resumeCtx != "" {
+			sendText = resumeCtx + "\n\n" + line
+		}
+	}
+	ctx, cancel := context.WithCancel(t.parentContext())
+	t.agentSeq++
+	requestID := t.agentSeq
+	t.agentCancel = cancel
+	t.agentRunning = true
+	t.status = "thinking"
+	endpoint := t.endpoint
+	return func() tea.Msg {
+		defer cancel()
+		text, err := sendA2AMessage(ctx, endpoint, 240*time.Second, sendText)
+		return agentResultMsg{id: requestID, text: text, err: err}
+	}
+}
+
+func (t *tui) startAction(action tuiAction) tea.Cmd {
+	if t.busy() {
+		t.entries = append(t.entries, tuiEntry{role: tuiRoleError, text: "another operation is already in progress"})
 		return nil
 	}
-	dc, err := dynamic.NewForConfig(cfg)
-	if err != nil {
-		t.entries = append(t.entries, tuiEntry{tuiRoleError, "client: " + err.Error()})
-		return nil
+	if action.kind == "change" && t.pendingChange != nil && t.pendingChange.idempotencyKey == action.change.idempotencyKey {
+		t.pendingChange.attempted = true
 	}
-	u, err := dc.Resource(schema.GroupVersionResource{Group: "aegis.dev", Version: "v1alpha1", Resource: "changerequests"}).Namespace("kagent").Get(t.cmd.Context(), name, metav1.GetOptions{})
-	if err != nil {
-		t.entries = append(t.entries, tuiEntry{tuiRoleError, err.Error()})
-		return nil
+	ctx, cancel := context.WithTimeout(t.parentContext(), action.timeout())
+	t.actionSeq++
+	requestID := t.actionSeq
+	t.actionCancel = cancel
+	t.actionRunning = true
+	t.status = action.kind
+	return func() tea.Msg {
+		defer cancel()
+		return actionResultMsg{id: requestID, output: action.execute(ctx)}
 	}
-	state, _, _ := unstructured.NestedString(u.Object, "status", "state")
-	approval, _, _ := unstructured.NestedString(u.Object, "status", "approval", "state")
-	approver, _, _ := unstructured.NestedString(u.Object, "status", "approval", "approver")
-	t.entries = append(t.entries, tuiEntry{tuiRoleSystem, fmt.Sprintf("%s state=%s approval=%s approver=%s", name, state, approval, approver)})
-	return nil
+}
+
+func (t *tui) finishAgent(result agentResultMsg) {
+	if !t.agentRunning || result.id != t.agentSeq {
+		return
+	}
+	t.cancelAgent()
+	if result.err != nil {
+		if errors.Is(result.err, context.Canceled) {
+			t.entries = append(t.entries, tuiEntry{role: tuiRoleSystem, text: "agent request cancelled"})
+			return
+		}
+		t.status = "error"
+		t.entries = append(t.entries, tuiEntry{role: tuiRoleError, text: "agent request failed: " + result.err.Error() +
+			"\nCheck /status or /agent <url>. /scan needs Kubernetes but does not use an LLM."})
+		return
+	}
+	t.status = "idle"
+	t.resumePending = false
+	t.entries = append(t.entries, tuiEntry{role: tuiRoleAegis, text: result.text})
+}
+
+func (t *tui) finishAction(result actionResultMsg) {
+	if !t.actionRunning || result.id != t.actionSeq {
+		return
+	}
+	t.cancelAction()
+	t.entries = append(t.entries, result.output.entries...)
+	if result.output.changeKey != "" && t.pendingChange != nil && t.pendingChange.idempotencyKey == result.output.changeKey {
+		t.pendingChange = nil
+	}
+}
+
+func (t *tui) busy() bool {
+	return t.agentRunning || t.actionRunning
+}
+
+func (t *tui) cancelAgent() {
+	if t.agentCancel != nil {
+		t.agentCancel()
+		t.agentCancel = nil
+	}
+	t.agentRunning = false
+	t.status = "idle"
+}
+
+func (t *tui) cancelAction() {
+	if t.actionCancel != nil {
+		t.actionCancel()
+		t.actionCancel = nil
+	}
+	t.actionRunning = false
+	t.status = "idle"
+}
+
+func (t *tui) cancelRunning() {
+	t.cancelAgent()
+	t.cancelAction()
+}
+
+func (t *tui) cancelPending() {
+	if t.agentRunning {
+		t.cancelAgent()
+		t.entries = append(t.entries, tuiEntry{role: tuiRoleSystem, text: "agent request cancelled"})
+		return
+	}
+	if t.actionRunning {
+		kind := t.status
+		t.cancelAction()
+		if t.pendingChange != nil {
+			t.entries = append(t.entries, tuiEntry{role: tuiRoleSystem, text: "operation cancelled; /confirm retries with the same idempotency key"})
+		} else {
+			t.entries = append(t.entries, tuiEntry{role: tuiRoleSystem, text: kind + " cancelled"})
+		}
+		return
+	}
+	if t.pendingChange != nil {
+		attempted := t.pendingChange.attempted
+		t.pendingChange = nil
+		if attempted {
+			t.entries = append(t.entries, tuiEntry{role: tuiRoleSystem, text: "pending change discarded; a request may have been sent, review CR status before retrying"})
+		} else {
+			t.entries = append(t.entries, tuiEntry{role: tuiRoleSystem, text: "pending change discarded; no request sent"})
+		}
+		return
+	}
+	t.entries = append(t.entries, tuiEntry{role: tuiRoleSystem, text: "nothing to cancel"})
 }
 
 func sessionID(t *tui) string {
@@ -632,8 +567,4 @@ func sessionID(t *tui) string {
 		return "none"
 	}
 	return t.sess.ID
-}
-
-func helpText() string {
-	return "commands: /scan [ns] [json|text|sarif] · /status · /agent <url> · /namespace <ns> · /sessions · /resume <id> · /new · /change <ns> <deploy> <from> <to> · /approve <cr> [approver] · /deny <cr> [approver] · /cr <cr> · /help · /exit"
 }

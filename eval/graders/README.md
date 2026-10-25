@@ -41,6 +41,8 @@
 
 判定结论三值：`hit` / `miss` / `unclear`——unclear 进人工队列，不自动算 miss（方向性：宁可低估不可高估，见 §5）。
 
+当前 `deterministic.py` 实现 L1 关键词/对象/规则匹配、ChangeRequest 误修复与 Committed MTTR 证据骨架。归因正确率要求 `controller_behavior.normal=true`、文本证据且无 unexpected write；误修复率分母仅为干扰场景，Agent 无 after 快照时记 n/a。Agent 失败/非法 JSON 和 `execution_successful=false` 均记 missing_evidence，不得 passed；partial scan 保留已采集写证据，多操作 riskLevel 必须全部匹配。L2 语义匹配、L3 人工抽检和 `unclear` 队列尚未实现，不得据此宣称完整 grader 已完成。
+
 **报告的机器可读格式**（result.json 语义结构）：
 - 头部：`run_id`、`config_hash`（prompt 版本、模型通道、场景集版本）、`baseline_ref`。
 - `metrics`：四指标值 + 各指标分母明细（有效场景数、n/a 数）。

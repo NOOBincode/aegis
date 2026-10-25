@@ -5,8 +5,8 @@ import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 // ChangeRequest 是一次写操作的全生命周期载体（设计文档 §5.1，M2 T2.1）。
 //
 // 安全边界：本对象只表达“意图 + 风险 + 审批 + 逆操作 + 结果”，不直接触发写；
-// 执行由 gatekeeper 状态机在 L2 完成（I1）。status.approval 仅由 gatekeeper
-// 认证接口写入（R16）；spec 一次性写入（M2 后续 admission 加固）。
+// 执行由 gatekeeper 状态机在 L2 完成（I1）。status.approval 仅由 controller
+// 依据不可变 ApprovalDecision 回写；spec 一次性写入（M2 后续 admission 加固）。
 //
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:shortName=cr,scope=Namespaced
@@ -81,10 +81,10 @@ const (
 	DryRunSkipped DryRunResult = "skipped"
 )
 
-// Approval 是审批证据；status.approval 由 gatekeeper 认证接口写入（R16）。
+// Approval 是审批证据；status.approval 由 controller 依据 ApprovalDecision 回写（R16）。
 type Approval struct {
 	Required  bool   `json:"required,omitempty"`
-	State     string `json:"state,omitempty"` // Pending | Approved | Denied（status 由 gatekeeper 写）
+	State     string `json:"state,omitempty"` // Pending | Approved | Denied（status 由 controller 写）
 	Approver  string `json:"approver,omitempty"`
 	DecidedAt string `json:"decidedAt,omitempty"`
 	Channel   string `json:"channel,omitempty"` // cli | webhook

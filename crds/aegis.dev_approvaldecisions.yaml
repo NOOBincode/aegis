@@ -1,0 +1,50 @@
+# 不可变审批决定；controller 消费后唯一回写 ChangeRequest status。
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: approvaldecisions.aegis.dev
+  labels: {aegis.dev/component: crd}
+spec:
+  group: aegis.dev
+  names:
+    kind: ApprovalDecision
+    listKind: ApprovalDecisionList
+    plural: approvaldecisions
+    singular: approvaldecision
+    shortNames: [ad]
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - {name: Decision, type: string, jsonPath: ".spec.decision"}
+        - {name: Approver, type: string, jsonPath: ".spec.approver"}
+        - {name: Age, type: date, jsonPath: ".metadata.creationTimestamp"}
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            apiVersion: {type: string}
+            kind: {type: string}
+            metadata: {type: object}
+            spec:
+              type: object
+              required: [changeRequestRef, approver, decision, channel, decidedAt, evidenceHash]
+              x-kubernetes-validations:
+                - rule: "self == oldSelf"
+              properties:
+                changeRequestRef:
+                  type: object
+                  required: [namespace, name, uid]
+                  properties:
+                    namespace: {type: string, minLength: 1, maxLength: 63}
+                    name: {type: string, minLength: 1, maxLength: 253}
+                    uid: {type: string, minLength: 1, maxLength: 128}
+                approver: {type: string, minLength: 1, maxLength: 128}
+                decision: {type: string, enum: [Approved, Denied]}
+                channel: {type: string, enum: [cli, webhook]}
+                decidedAt: {type: string, format: date-time}
+                evidenceHash: {type: string, minLength: 16, maxLength: 128}
+                note: {type: string, maxLength: 512}

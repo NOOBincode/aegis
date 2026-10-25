@@ -14,8 +14,8 @@ aegis-cli 是人操作 aegis 的入口：**无子命令时默认进入交互式�
 | --- | --- | --- | --- | --- |
 | 默认 `aegis-cli` | 进入交互式会话：本地 `/scan` + 自然语言 Agent 对话 + `/agent`/`/status`/`/exit` | 无 | | M2 配套 |
 | `chat` | 兼容入口：kagent A2A 交互式只读诊断对话（不直接写） | `--endpoint`（默认 `http://127.0.0.1:18082/`）、`--message` 一次性、`/exit` 退出 | kagent Agent A2A；写操作仍需 `request_change` | M1/M2 配套 |
-| `approve <cr>` | 提交审批通过意图（R2 人审通道之一，§4.2.1） | cr 名；`--note` 审批意见（机读为字段 `note`） | 写 `spec.approval`（approver 取自本地 kubeconfig 身份，channel=cli）；状态机校验合法性 | T2.4 |
-| `deny <cr>` | 提交审批拒绝意图 | cr 名；`--note` 拒绝理由（机读为字段 `note`） | 写 `spec.approval`（approver 取自本地身份，channel=cli）；状态机校验合法性，迁移结果 Rejected | T2.4 |
+| `approve <cr>` | 提交审批通过意图（R2 人审通道之一，§4.2.1） | cr 名；`--note` 审批意见（机读为字段 `note`） | 经 gatekeeper 创建不可变 ApprovalDecision；controller 校验后回写审批状态 | T2.4 |
+| `deny <cr>` | 提交审批拒绝意图 | cr 名；`--note` 拒绝理由（机读为字段 `note`） | 经 gatekeeper 创建不可变 ApprovalDecision；controller 拒绝该 CR 并迁移至 Rejected | T2.4 |
 | `status <cr>` | 视图：状态机位置、verification、rollback 信息、abort 状态 | `-o json` | 只读 status，零写 | M2 配套 |
 | `get <kind>` | 列表/详情视图（changerequest / guardrailpolicy / decisionrecord） | 名称可选；label selector、分页参数语义与 kubectl 对齐 | 只读 | M2 配套 |
 | `replay <decision-record>` | 回放完整决策链（M1 验收口径：`aegis-cli replay` 回放完整决策链） | record 名；可选步骤区间 | 读 DecisionRecord（§5.3 全量字段）及其 `clusterSnapshotRef`/`llmTraceRef` 引用 | T1.8 |
@@ -52,10 +52,10 @@ aegis-cli 是人操作 aegis 的入口：**无子命令时默认进入交互式�
 
 **审批语义**（approve/deny 的核心契约）：
 
-1. CLI 只被授权写 **spec**：`spec.approval.approver`（取自当前 kubeconfig 用户）、`spec.approval.decidedAt`（CLI 本地时间，服务端以收到时刻复核）、`spec.approval.channel=cli`、可选 note。
-2. status 由 controller 独占（K8s status subresource 权限隔离），迁移合法性校验在服务端：CR 须处于 AwaitingApproval、级别确需审批、未超 `rollback.deadline`、非目标冷却期、非熔断态。
-3. 校验失败 = CLI 收到服务端明确拒绝理由，原样呈现，**不回退为本地猜测**。
-4. 自写客户端绕过 CLI 直改 status：无效（状态机纠正，见 `cmd/controller/README.md` §5）——CLI 在此不是安全边界，只是合规通道。
+1. CLI 通过签名信封向 gatekeeper 提交 CR、approve/deny 与可选 note，不直接创建 ApprovalDecision，也不写 CR status。审批人由服务端确定；启用 mTLS 时必须与客户端证书 CN 一致。
+2. gatekeeper 校验信封、CR 状态和自批规则后创建不可变 ApprovalDecision；controller 核对 CR UID 并消费决定，独占 status 写入。决定名由 CR UID 派生，重复或冲突决定不会覆盖既有审批。
+3. 校验失败 = CLI 收到服务端明确拒绝理由，原样呈现，**不回退为本地猜测**。审批提交结果不确定时可用同一意图重试，不能改发一份不同决定。
+4. CLI 没有审批特权或 `--yes` 旁路；直接创建决定、修改 status 的权限由 Kubernetes RBAC 和服务端契约限制，仍须结合部署清单审查。mTLS 代码存在不等于部署已启用证书。
 
 **输出契约**：
 
@@ -80,7 +80,7 @@ aegis-cli 是人操作 aegis 的入口：**无子命令时默认进入交互式�
 
 | 错误类别 | 检测手段 | 处置策略 | 姿态与理由 |
 | --- | --- | --- | --- |
-| apiserver 不可达 / 超时 | client 调用错误 | 退出码 3 + 重试提示（不重试写动作，防重复提交焦虑） | **fail-closed**：CLI 拿不到权威状态就报错退出，不打印猜测；审批类写操作幂等性由服务端 idempotencyKey 兜底（F15），CLI 层不重复提交 |
+| apiserver 不可达 / 超时 | client 调用错误 | 退出码 3 + 重试提示（不重试写动作，防重复提交焦虑） | **fail-closed**：CLI 拿不到权威状态就报错退出，不打印猜测；审批提交由 CR UID 派生的 ApprovalDecision 折叠；失败重试须针对同一 CR 和决定，不得更改审批内容 |
 | 凭证无效 / RBAC 不足（403） | apiserver 状态码 | 退出码 5，原样呈现服务端 reason | fail-closed；不引导用户"换高权限凭证" |
 | 资源未找到（404） | apiserver 状态码 | 退出码 4 + 相似资源建议（仅 get 类） | 只读路径可引导，写路径直接终止 |
 | 服务端规则拒绝（状态机校验失败） | 服务端 reason 字段 | 退出码 5，完整呈现 reason（含哪条规则：deadline / 冷却期 / 熔断态） | 判定永远归服务端；CLI 的呈现义务是**不截断**拒绝理由 |
@@ -93,14 +93,14 @@ aegis-cli 是人操作 aegis 的入口：**无子命令时默认进入交互式�
 
 CLI 是短进程，不设指标端点、不接 OTel exporter（§3）；其可观测性义务在**审计与本地 debug**：
 
-- **审计留痕点**（全部经服务端落库，不在 CLI 本地）：① 审批提交——`spec.approval` 写入即入 CR 与 DecisionRecord 关联审计（approver / decidedAt / channel=cli / note）；② `breaker reset`——reason、操作者（kubeconfig 身份）、时间，随复位动作留痕（F7 要求"显式复位且留痕"）；③ `replay` 读取事件——审计侧可发现谁在何时回放了哪条决策链；④ CLI 不产生任何绕过审计的写路径。
+- **审计留痕点**（审批证据经服务端落库，不在 CLI 本地）：① 审批提交——gatekeeper 创建含 CR ref、approver、decidedAt、channel 与 evidenceHash 的 ApprovalDecision，controller 将审批结果写入 CR status；② `breaker reset`——reason、操作者（kubeconfig 身份）、时间，随复位动作留痕（F7 要求"显式复位且留痕"）；③ `replay` 读取事件——审计侧可发现谁在何时回放了哪条决策链；④ CLI 不产生任何绕过审计的写路径。
 - **本地 debug 日志字段**（`--v` 分级，slog）：`command`、`cr_name`（或目标对象名）、`kube_user`、`output_mode`（table/json）、`duration_ms`、`exit_code`、`api_latency_ms`。**不记录**工具全量参数与凭证材料，防敏感信息落盘。
 - **trace 关联**：不产 span；`replay` 视图呈现 `llmTraceRef`（Langfuse 引用），人工/trace 系统的对账入口在 DecisionRecord（§5.3）。
 
 ## 7. 依赖方向与模块边界
 
 - **谁调我**：人类用户（交互）；CI 脚本（`-o json` + 退出码，如 `kind-smoke.yml` 与 `eval-regression.yml` 的编排步骤）；eval 流水线。
-- **我调谁**：apiserver（CR 读、spec 写）；`api/v1alpha1` 类型（机读编码契约）；`internal/adapters/k8s` 的客户端构造（只读装载，复用而非重造）；`eval run` 经 Makefile 目标转调 `eval/` 的 Python runner（进程外，控制面禁内嵌非 Go 运行时，aegis-go-quality 依赖纪律）。
+- **我调谁**：apiserver（CR 读）；gatekeeper MCP（写意图）与审批 HTTP（提交决定）；`api/v1alpha1` 类型（机读编码契约）；`internal/adapters/k8s` 的客户端构造（只读装载，复用而非重造）；`eval run` 经 Makefile 目标转调 `eval/` 的 Python runner（进程外，控制面禁内嵌非 Go 运行时，aegis-go-quality 依赖纪律）。
 - **禁止依赖谁**：禁止 import `internal/` 各上下文的 service / domain 业务实现（CLI 无业务可下沉，视图逻辑就地内聚于 cmd 属允许的装配残余——呈现格式化这类纯视图代码没有更合适的归属）；禁止 import gatekeeper / controller 进程的任何包（一切经 apiserver 契约）；禁止直接触达 L1 工具层与目标集群写接口；禁止 import 评分逻辑（`eval/` 是独立 Python 世界，落地方案附录 A）。
 - **被依赖关系**：无（main 包）。
 
@@ -117,7 +117,14 @@ CLI 是短进程，不设指标端点、不接 OTel exporter（§3）；其可�
 
 ## 9. TUI
 
-默认 `aegis-cli` 在 TTY 下进入全屏 TUI：主栏对话/scan，右侧 quick start/target/safety，底部输入。非 TTY 自动回退行式 session；`AEGIS_TUI=force` 可强制，`AEGIS_TUI_DUMP` 导出纯文本帧用于截图。
+默认 `aegis-cli` 在 stdin/stdout 均为 TTY 时进入全屏 TUI，非 TTY 自动回退行式 session。实现使用 Bubble Tea v1.3.10（事件循环与终端生命周期）、Bubbles v0.21.0（textinput/viewport/spinner）和 Lip Gloss v1.1.0（ANSI-aware 布局）；版本在 `go.mod` 钉死，均为 MIT。`tui.go` 只管模型和事件路由，`tui_view.go` 只管呈现，`tui_actions.go` 承载原有外部动作。
+
+- 宽屏为对话 + 简洁上下文侧栏，窄屏自动收起侧栏；`tea.WindowSizeMsg` 驱动 resize。
+- Enter 提交；Up/Down、PgUp/PgDn 滚动 transcript；Esc 或 `/cancel` 取消进行中的操作/待确认预览；Ctrl+C 取消并退出。
+- Agent、scan、gatekeeper、审批和 CR 查询都是带 request ID 与 context 超时的 `tea.Cmd`，取消后的过期结果不会更新视图，后台动作不直接修改 model。
+- 自然语言 scale 只生成预览，`/confirm` 后才调用 gatekeeper `request_change`；显式 `/change` 仍是明确提交。结果不确定时保留待确认意图和同一 idempotency key，`/confirm` 可安全重试，明确成功后才清除。
+- Esc 取消会落盘；`/new`、`/resume` 在保存当前 transcript 失败时中止，避免静默丢失会话。
+- `AEGIS_TUI=force` 可在管道/截图环境强制；`AEGIS_TUI_WIDTH`/`HEIGHT` 固定模拟尺寸；`AEGIS_TUI_DUMP` 将最终 `View()` 导出为无 ANSI 纯文本帧。
 
 ## 10. 会话管理
 

@@ -144,11 +144,6 @@ func (s *ChangeRequestService) Submit(ctx context.Context, req SubmitRequest) (S
 			Approval: aegisv1.Approval{Required: dec.RequiresApproval, State: "Pending", Channel: "cli"},
 		},
 	}
-	if dec.RequiresApproval {
-		cr.Status.State = aegisv1.StateAwaitingApproval
-	} else {
-		cr.Status.State = aegisv1.StatePending
-	}
 	for i, op := range req.Operations {
 		inv := rollback.Generate(rollback.Operation{Tool: op.Tool, Args: op.Args})
 		apiOp := aegisv1.ChangeOperation{
@@ -171,18 +166,12 @@ func (s *ChangeRequestService) Submit(ctx context.Context, req SubmitRequest) (S
 	if err != nil {
 		return SubmitResult{}, fmt.Errorf("encode ChangeRequest: %w", err)
 	}
-	created, err := s.Client.Resource(gvr).Namespace(cr.Namespace).Create(ctx, &unstructured.Unstructured{Object: obj}, metav1.CreateOptions{})
+	_, err = s.Client.Resource(gvr).Namespace(cr.Namespace).Create(ctx, &unstructured.Unstructured{Object: obj}, metav1.CreateOptions{})
 	if apierrors.IsAlreadyExists(err) {
 		return SubmitResult{Decision: dec, Name: name, Created: false}, nil
 	}
 	if err != nil {
 		return SubmitResult{}, fmt.Errorf("创建 ChangeRequest: %w", err)
-	}
-	// status 是 subresource：Create 时带的 status 会被 apiserver 忽略，必须显式 UpdateStatus。
-	// Create 返回对象可能丢 status；把期望 status 显式赋回再 UpdateStatus。
-	created.Object["status"] = obj["status"]
-	if _, err := s.Client.Resource(gvr).Namespace(cr.Namespace).UpdateStatus(ctx, created, metav1.UpdateOptions{}); err != nil {
-		return SubmitResult{}, fmt.Errorf("初始化 ChangeRequest status: %w", err)
 	}
 	return SubmitResult{Decision: dec, Name: name, Created: true}, nil
 }

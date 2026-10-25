@@ -10,10 +10,10 @@
 | 组件 | 现状 | 与 harness 的差距 |
 | --- | --- | --- |
 | ChangeRequest CRD | `spec` 保存意图/操作/幂等键；`status.state` 由 controller 写 | state 枚举缺 `Unknown`；无 preimage/desired/after 字段 |
-| gatekeeper | MCP `request_change`、策略、审批 HTTP、mTLS；审批服务写 `status.approval` | **与 controller 双写 status**，违反单权威源 |
+| gatekeeper | MCP `request_change`、策略、审批 HTTP、mTLS；审批服务只创建 ApprovalDecision | 单写者已于 2026-10-25 落地；其余 H2/H3 可靠性项仍待补 |
 | controller | client-go informer + 单 worker；`--enable-writes` 才执行 | 无 journal、无 per-cluster actor、无 leader election |
 | ScaleExecutor | dry-run → **merge patch** → verify replicas → rollback | 非 SSA；无 `fieldManager`/冲突处理；无 preimage |
-| 审批 | gatekeeper-approval Deployment，Secret volume，R2 实测通过 | 审批写入仍是 status 字段，不是独立决策对象 |
+| 审批 | 独立不可变 ApprovalDecision，gatekeeper-approval 只创建决定 | 已于 2026-10-25 落地；不再直接写 ChangeRequest status |
 | 恢复 | `Executing/Verifying` 只做 verify；无 Unknown/冲突分支 | 不满足 H-I4/H-I6 |
 | 测试 | L0/L1/L5 已接；L3/L4 未实现 | journal==execution、kill-recovery 尚无 harness |
 
@@ -32,26 +32,26 @@
 
 ## 3. 单权威源：不要双写 status
 
-当前 `gatekeeper.ApprovalServer` 直接 `UpdateStatus` 写 `status.approval`，而 `controller.Reconciler` 整体写 `status`（含 `state/conditions/execution`）。这会产生 resourceVersion 冲突与“审批已写但 controller 覆盖”的窗口。
+旧实现曾由 `gatekeeper.ApprovalServer` 与 `controller.Reconciler` 双写 status，存在 resourceVersion 冲突和覆盖窗口；该问题已修复。当前审批服务只创建不可变决定，controller 是 ChangeRequest `status` 的唯一 writer。
 
-**决定（H-I1 前置）**：
+**已实现（2026-10-25）**：
 
-1. `controller` 是 ChangeRequest `status` 的唯一 writer。
-2. gatekeeper 审批端点不再写 ChangeRequest status；改为创建不可变 `ApprovalDecision`（或等价独立对象/事件），字段：
+1. `controller` 是 ChangeRequest `status` 的唯一 writer，RBAC 同时禁止 gatekeeper 写 status。
+2. gatekeeper 审批端点只创建不可变 `ApprovalDecision`，字段：
    ```yaml
    kind: ApprovalDecision
    spec:
-     changeRequestRef: {namespace, name}
+     changeRequestRef: {namespace, name, uid}
      approver: alice
-     decision: approved|denied
+     decision: Approved|Denied
      channel: cli|webhook
      decidedAt: ...
      evidenceHash: sha256:...
    ```
 3. controller 消费 ApprovalDecision，写 `status.approval` 并推进状态机。
-4. 迁移前，审批 API 保持**只读校验**，不写 status；否则 H-I1 不成立。
+4. 审批 API 保持**只读校验**，不写 status；否则 H-I1 不成立。
 
-> 这是对现有 `cmd/gatekeeper/approval_server.go` 的明确修正项，不是可选优化。
+> 这是对现有 `internal/gatekeeper/approval_server.go` 的明确修正项，不是可选优化。
 
 ## 4. 状态机映射
 
@@ -198,11 +198,11 @@ testdata/harness/
 | H2 | Unknown 状态 + preimage + SSA + envtest + kill-recovery | L1 envtest、L4 三分支、零污染 |
 | H3 | ApprovalDecision 单写者 + controller actor + Stop/心跳 | 审批→执行全链路单一 status writer |
 
-**当前状态（2026-10-21）**：H1 的 journal 纯领域库已落（append/fsync/checksum hash chain/Verify，单测通过）；H1 的 fake 故障注入、H2/H3 均未实现。M2 的 E2E 只证明功能链，不证明 harness 可靠性。
+**当前状态（2026-10-25）**：H1 的 journal 纯领域库已落（append/fsync/checksum hash chain/Verify，单测通过）；H1 的 fake 故障注入与 H2 均未实现。H3 的 ApprovalDecision 单写者已落地（additive CRD、controller 初始化/消费、watch、RBAC 与 fake 单测），controller actor/Stop/心跳仍未实现。M2 的 E2E 只证明功能链，不证明 harness 可靠性。
 
 ## 11. 开放决策（需要确认）
 
-1. **单写者迁移**：ApprovalDecision 新 CRD，还是把审批并入 controller 进程？本文推荐前者（保持审批/执行进程边界）。
+1. **单写者迁移（已决定）**：采用 ApprovalDecision 新 CRD，保持审批/执行进程边界（2026-10-25 已实现）。
 2. **journal 存储**：controller StatefulSet + PVC（kind local-path）还是外部 append-only audit sink？H-I2 的 fsync 要求使本地 PV 更直接，但需要备份/轮转。
 3. **CRD 迁移**：`Unknown`、before/desired/after、requestID 注解是否一次加，还是分组迁移？本文建议一次设计、分组实现。
 4. **envtest 可用性**：CI 是否接受下载 envtest 二进制；当前环境无 `/usr/local/kubebuilder`。

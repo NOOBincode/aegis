@@ -1,0 +1,29 @@
+{
+  "id": "m2-m3-reliability-eval",
+  "name": "m2-m3-reliability-eval",
+  "title": "M2/M3 可靠性与 eval 骨架",
+  "description": "先完成 M2 审批单写者，再交付 M3 eval runner 骨架与测试",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": "aegis-cli",
+  "priority": "P2",
+  "creator": "lv",
+  "assignee": "lv",
+  "createdAt": "2026-10-25",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "10-25-m2-approval-single-writer",
+    "10-25-m3-eval-runner-skeleton"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

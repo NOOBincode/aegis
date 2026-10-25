@@ -10,7 +10,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
-	aegisv1 "github.com/aegis-dev/aegis/api/v1alpha1"
 	"github.com/aegis-dev/aegis/internal/policy"
 	"github.com/aegis-dev/aegis/internal/risk"
 )
@@ -33,7 +32,7 @@ func newSubmitService(t *testing.T) *ChangeRequestService {
 	return &ChangeRequestService{Client: dc, GVR: changeRequestGVR}
 }
 
-func TestSubmitR1CreatesPendingAndIdempotent(t *testing.T) {
+func TestSubmitR1CreatesSpecAndIdempotent(t *testing.T) {
 	s := newSubmitService(t)
 	got, err := s.Submit(context.Background(), submitFixture())
 	if err != nil || !got.Created || got.Decision.Reject || got.Decision.RequiresApproval {
@@ -50,9 +49,9 @@ func TestSubmitR1CreatesPendingAndIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, _, _ := unstructured.NestedString(u.Object, "status", "state")
-	if state != string(aegisv1.StatePending) {
-		t.Fatalf("status state=%q object=%v", state, u.Object["status"])
+	state, found, _ := unstructured.NestedString(u.Object, "status", "state")
+	if found && state != "" {
+		t.Fatalf("gatekeeper must not initialize status: %v", u.Object["status"])
 	}
 }
 
@@ -78,9 +77,13 @@ func TestSubmitR2AwaitingApproval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, _, _ := unstructured.NestedString(u.Object, "status", "state")
-	if state != string(aegisv1.StateAwaitingApproval) {
-		t.Fatalf("R2 status state=%q want AwaitingApproval", state)
+	required, _, _ := unstructured.NestedBool(u.Object, "spec", "approval", "required")
+	if !required {
+		t.Fatalf("R2 spec approval.required=false object=%v", u.Object["spec"])
+	}
+	state, found, _ := unstructured.NestedString(u.Object, "status", "state")
+	if found && state != "" {
+		t.Fatalf("gatekeeper must not initialize status: %v", u.Object["status"])
 	}
 }
 

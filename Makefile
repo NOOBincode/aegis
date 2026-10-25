@@ -14,7 +14,7 @@ GO_MODULES := . \
 	mcp-servers/runbook \
 	mcp-servers/scan
 
-.PHONY: help lint test test-unit test-integration bench build mcp-images mcp-up security-smoke redteam-netpol mtls-certs gatekeeper-up controller-up check-skills check-secrets ai-up ai-down m1-demo up down clean
+.PHONY: help lint test test-unit test-eval test-integration eval-smoke bench build mcp-images mcp-up security-smoke redteam-netpol mtls-certs gatekeeper-up controller-up check-skills check-secrets ai-up ai-down m1-demo up down clean
 
 help: ## 目标一览
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -32,6 +32,13 @@ test: ## 单元测试（-race 默认开启；goleak 由并发用例自管）
 
 test-unit: ## L0 单元测试（无 race，快速提交门禁；逐 module）
 	@for m in $(GO_MODULES); do (cd $$m && go test ./...) || exit 1; done
+
+test-eval: ## M3 eval runner 单测（Python 标准库，无集群）
+	python3 -m unittest discover -s eval/tests -v
+
+eval-smoke: ## M3 单场景冒烟（需 kind + bin/aegis-cli）
+	go build -o bin/aegis-cli ./cmd/aegis-cli
+	python3 eval/runner.py --scenario eval/scenarios/oom-killed --mode scan --aegis-cli bin/aegis-cli
 
 test-integration: ## L1 集成测试（kind 实集群；需 KUBECONFIG 指向 aegis kind）
 	@for m in mcp-servers/k8s-read mcp-servers/scan; do (cd $$m && go test -tags integration ./...) || exit 1; done

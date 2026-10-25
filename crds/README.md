@@ -16,7 +16,7 @@ CRD 是闸门语义的 K8s 载体：ChangeRequest 状态机落盘使 gatekeeper 
 
 | # | 职责 | 交付物 | 对应任务 |
 | --- | --- | --- | --- |
-| 1 | 四个 CRD manifest 维护 | 本目录生成物 | T1.8、T2.1 |
+| 1 | 五个 CRD manifest 维护 | 本目录生成物 | T1.8、T2.1、H3 |
 | 2 | 生成链治理 | api/v1alpha1 → controller-gen → crds/ 的纪律 | T2.1 |
 | 3 | 安装/升级顺序编排 | §4.3 | T2.1 |
 | 4 | conversion webhook 预留 | §4.5 | 接缝 |
@@ -29,13 +29,14 @@ CRD 是闸门语义的 K8s 载体：ChangeRequest 状态机落盘使 gatekeeper 
 
 ## 4. 具体设计（不写代码）
 
-### 4.1 四个 CRD 定位
+### 4.1 五个 CRD 定位
 
 | CRD | 一句话定位 | 设计文档出处 | 引入里程碑 |
 | --- | --- | --- | --- |
 | ChangeRequest | 闸门核心对象：一次写操作的全生命周期载体，幂等键派生 CR 名 | §5.1 | M2（T2.1） |
 | GuardrailPolicy | 可评审的护栏策略 YAML：硬拒清单/爆炸半径配额/限流/会话预算/熔断参数 | §5.2 | M2（T2.1） |
 | DecisionRecord | 审计对象：输入快照/工具序列/消毒事件/结果，落盘不可变，回放载体 | §5.3 | M1（T1.8） |
+| ApprovalDecision | 不可变审批决定；gatekeeper 只创建，controller 消费后唯一回写 ChangeRequest status | `docs/harness-reliability.md` §3 | M2 可靠性完善（H3） |
 | SchedulingHint | 调度建议契约位：hint 是建议而非指令，调度器可拒绝 | §5.4 | M4（仅契约位，决策门控制） |
 
 ### 4.2 类型与 manifest 的同步纪律

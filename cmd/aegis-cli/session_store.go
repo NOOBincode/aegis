@@ -191,16 +191,26 @@ func deriveTitle(entries []tuiEntry) string {
 	return "untitled session"
 }
 
-func (t *tui) persist() {
+func (t *tui) persist() bool {
+	if !t.hasActivity {
+		return true
+	}
 	if t.store == nil || t.sess == nil {
-		return
+		return false
 	}
 	t.sess.Endpoint = t.endpoint
 	t.sess.Namespace = t.namespace
 	t.sess.Entries = t.entries
 	if err := t.store.save(t.sess); err != nil {
+		if t.storageErr != err.Error() {
+			t.entries = append(t.entries, tuiEntry{role: tuiRoleError, text: "session save failed: " + err.Error()})
+		}
 		t.storageErr = err.Error()
+		t.sess.Entries = t.entries
+		return false
 	}
+	t.storageErr = ""
+	return true
 }
 
 func (t *tui) resumeSession(id string) error {

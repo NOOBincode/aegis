@@ -18,6 +18,9 @@ import (
 // DefaultGVR 是 ChangeRequest 的 GVR（与 crds/ 清单同步）。
 var DefaultGVR = schema.GroupVersionResource{Group: "aegis.dev", Version: "v1alpha1", Resource: "changerequests"}
 
+// ApprovalDecisionGVR 是不可变审批决定的 GVR；controller 只读并回写 ChangeRequest status。
+var ApprovalDecisionGVR = schema.GroupVersionResource{Group: "aegis.dev", Version: "v1alpha1", Resource: "approvaldecisions"}
+
 const finalizer = "aegis.dev/finalizer"
 
 // Executor 是 controller 侧写执行端口；实现由 adapters/k8s 提供。nil 时只做
@@ -81,10 +84,25 @@ func (r *Reconciler) Reconcile(ctx context.Context, namespace, name string) erro
 	st := State(cr.Status.State)
 	if st == "" {
 		st = StatePending
+		if cr.Spec.Approval.Required {
+			st = StateAwaitingApproval
+		}
 		cr.Status.State = aegisv1.ChangeRequestState(st)
+		cr.Status.Approval = aegisv1.Approval{
+			Required: cr.Spec.Approval.Required, State: "Pending", Channel: cr.Spec.Approval.Channel,
+		}
 		cr.Status.ObservedGeneration = cr.Generation
-		setCondition(cr, "Initialized", metav1.ConditionTrue, "Reconciled", "ChangeRequest 进入 Pending")
+		setCondition(cr, "Initialized", metav1.ConditionTrue, "Reconciled", "ChangeRequest 进入 "+string(st))
 		return r.updateStatus(ctx, gvr, cr)
+	}
+	if st == StateAwaitingApproval {
+		handled, err := r.applyApprovalDecision(ctx, gvr, cr)
+		if err != nil {
+			return err
+		}
+		if handled {
+			return nil
+		}
 	}
 	// Pending / AwaitingApproval+Approved 是执行入口；Executing/Verifying 只做实际状态核对，
 	// 绝不重放写操作。
@@ -116,6 +134,58 @@ func (r *Reconciler) Reconcile(ctx context.Context, namespace, name string) erro
 	}
 	cr.Status.ObservedGeneration = cr.Generation
 	return r.updateStatus(ctx, gvr, cr)
+}
+
+func (r *Reconciler) applyApprovalDecision(ctx context.Context, gvr schema.GroupVersionResource, cr *aegisv1.ChangeRequest) (bool, error) {
+	list, err := r.Client.Resource(ApprovalDecisionGVR).Namespace(cr.Namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: "aegis.dev/change-request=" + cr.Name,
+	})
+	if err != nil {
+		return false, fmt.Errorf("list ApprovalDecision for %s/%s: %w", cr.Namespace, cr.Name, err)
+	}
+	var latest *aegisv1.ApprovalDecision
+	for i := range list.Items {
+		decision := &aegisv1.ApprovalDecision{}
+		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(list.Items[i].Object, decision); err != nil {
+			return false, fmt.Errorf("decode ApprovalDecision: %w", err)
+		}
+		if decision.Spec.ChangeRequestRef.UID != string(cr.UID) {
+			continue
+		}
+		if latest == nil || decision.Spec.DecidedAt > latest.Spec.DecidedAt ||
+			(decision.Spec.DecidedAt == latest.Spec.DecidedAt && decision.Name > latest.Name) {
+			latest = decision
+		}
+	}
+	if latest == nil {
+		return false, nil
+	}
+	if latest.Spec.Decision != "Approved" && latest.Spec.Decision != "Denied" {
+		return false, fmt.Errorf("invalid approval decision %q", latest.Spec.Decision)
+	}
+	if cr.Status.Approval.State == "Approved" || cr.Status.Approval.State == "Denied" {
+		if cr.Status.Approval.State != latest.Spec.Decision {
+			return false, nil
+		}
+		if latest.Spec.Decision == "Denied" && cr.Status.State != aegisv1.StateRejected {
+			cr.Status.State = aegisv1.StateRejected
+			cr.Status.ObservedGeneration = cr.Generation
+			setCondition(cr, "ApprovalDenied", metav1.ConditionTrue, "ApprovalDecision", "审批已拒绝")
+			return true, r.updateStatus(ctx, gvr, cr)
+		}
+		return false, nil
+	}
+	cr.Status.Approval = aegisv1.Approval{
+		Required: cr.Spec.Approval.Required, State: latest.Spec.Decision,
+		Approver: latest.Spec.Approver, DecidedAt: latest.Spec.DecidedAt, Channel: latest.Spec.Channel,
+	}
+	if latest.Spec.Decision == "Denied" {
+		cr.Status.State = aegisv1.StateRejected
+		cr.Status.ObservedGeneration = cr.Generation
+		setCondition(cr, "ApprovalDenied", metav1.ConditionTrue, "ApprovalDecision", "审批已拒绝")
+		return true, r.updateStatus(ctx, gvr, cr)
+	}
+	return false, nil
 }
 
 func (r *Reconciler) execute(ctx context.Context, gvr schema.GroupVersionResource, cr *aegisv1.ChangeRequest) error {
@@ -216,7 +286,10 @@ func (r *Reconciler) update(ctx context.Context, gvr schema.GroupVersionResource
 	if err != nil {
 		return fmt.Errorf("encode ChangeRequest: %w", err)
 	}
-	_, err = r.Client.Resource(gvr).Namespace(cr.Namespace).Update(ctx, &unstructured.Unstructured{Object: u}, metav1.UpdateOptions{})
+	updated, err := r.Client.Resource(gvr).Namespace(cr.Namespace).Update(ctx, &unstructured.Unstructured{Object: u}, metav1.UpdateOptions{})
+	if err == nil && updated != nil {
+		cr.ResourceVersion = updated.GetResourceVersion()
+	}
 	return err
 }
 
@@ -225,7 +298,10 @@ func (r *Reconciler) updateStatus(ctx context.Context, gvr schema.GroupVersionRe
 	if err != nil {
 		return fmt.Errorf("encode ChangeRequest: %w", err)
 	}
-	_, err = r.Client.Resource(gvr).Namespace(cr.Namespace).UpdateStatus(ctx, &unstructured.Unstructured{Object: u}, metav1.UpdateOptions{})
+	updated, err := r.Client.Resource(gvr).Namespace(cr.Namespace).UpdateStatus(ctx, &unstructured.Unstructured{Object: u}, metav1.UpdateOptions{})
+	if err == nil && updated != nil {
+		cr.ResourceVersion = updated.GetResourceVersion()
+	}
 	return err
 }
 

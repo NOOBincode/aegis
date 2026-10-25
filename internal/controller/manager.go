@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/dynamic/dynamicinformer"
@@ -42,8 +43,11 @@ func (m *Manager) Run(ctx context.Context) error {
 
 	factory := dynamicinformer.NewFilteredDynamicSharedInformerFactory(m.Client, m.Resync, metav1.NamespaceAll, nil)
 	informer := factory.ForResource(DefaultGVR).Informer()
+	decisionInformer := factory.ForResource(ApprovalDecisionGVR).Informer()
 	queue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]())
 	defer queue.ShutDown()
+	stopQueue := context.AfterFunc(ctx, queue.ShutDown)
+	defer stopQueue()
 
 	enqueue := func(obj any) {
 		key, err := cache.MetaNamespaceKeyFunc(obj)
@@ -53,6 +57,7 @@ func (m *Manager) Run(ctx context.Context) error {
 		}
 		queue.Add(key)
 	}
+	enqueueDecision := func(obj any) { enqueueApprovalDecision(obj, queue, logger) }
 	if _, err := informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    enqueue,
 		UpdateFunc: func(_, newObj any) { enqueue(newObj) },
@@ -60,9 +65,16 @@ func (m *Manager) Run(ctx context.Context) error {
 	}); err != nil {
 		return fmt.Errorf("注册 informer handler: %w", err)
 	}
+	if _, err := decisionInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    enqueueDecision,
+		UpdateFunc: func(_, newObj any) { enqueueDecision(newObj) },
+		DeleteFunc: enqueueDecision,
+	}); err != nil {
+		return fmt.Errorf("注册 approval decision handler: %w", err)
+	}
 
 	factory.Start(ctx.Done())
-	if !cache.WaitForCacheSync(ctx.Done(), informer.HasSynced) {
+	if !cache.WaitForCacheSync(ctx.Done(), informer.HasSynced, decisionInformer.HasSynced) {
 		return fmt.Errorf("informer 未完成同步")
 	}
 	logger.Info("controller.started", "resync", m.Resync.String())
@@ -91,5 +103,19 @@ func (m *Manager) Run(ctx context.Context) error {
 			return nil
 		default:
 		}
+	}
+}
+
+func enqueueApprovalDecision(obj any, queue workqueue.TypedRateLimitingInterface[string], logger *slog.Logger) {
+	accessor, err := meta.Accessor(obj)
+	if err != nil {
+		if logger != nil {
+			logger.Warn("controller.decision_enqueue_fail", "error", err)
+		}
+		return
+	}
+	name := accessor.GetLabels()["aegis.dev/change-request"]
+	if name != "" {
+		queue.Add(accessor.GetNamespace() + "/" + name)
 	}
 }

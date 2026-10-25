@@ -23,7 +23,7 @@
 - [ ] ChangeRequest `Unknown` 可进入/退出，绝不假成功；
 - [ ] SSA + envtest 覆盖字段所有权冲突；L3 canonical bytes 一致；
 - [ ] L4 kill controller 三阶段（dry-run 后/apply 后/verify 中）三分支各演示一次，零污染；
-- [ ] ApprovalDecision 落地后 controller 是唯一 status writer；
+- [x] ApprovalDecision 落地后 controller 是唯一 status writer（2026-10-25，additive CRD + 单测 + RBAC）；
 - [ ] 与 `aegis-test-matrix` L3/L4 门禁联动。
 
 ## Open Decisions

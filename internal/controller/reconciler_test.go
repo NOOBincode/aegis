@@ -3,12 +3,14 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
 	aegisv1 "github.com/aegis-dev/aegis/api/v1alpha1"
@@ -20,7 +22,7 @@ func newFakeCR(state string, deleting bool) *unstructured.Unstructured {
 		"apiVersion": "aegis.dev/v1alpha1",
 		"kind":       "ChangeRequest",
 		"metadata": map[string]any{
-			"name": "cr-test", "namespace": "default", "generation": int64(1),
+			"name": "cr-test", "namespace": "default", "generation": int64(1), "uid": "uid-cr-test",
 		},
 		"spec": map[string]any{
 			"sessionRef": "s", "idempotencyKey": "k", "intent": "i", "source": "agent",
@@ -44,12 +46,16 @@ func newFakeCR(state string, deleting bool) *unstructured.Unstructured {
 	return &unstructured.Unstructured{Object: obj}
 }
 
-func newFake(t *testing.T, obj *unstructured.Unstructured) *Reconciler {
+func newFake(t *testing.T, objects ...*unstructured.Unstructured) *Reconciler {
 	t.Helper()
 	scheme := runtime.NewScheme()
+	runtimeObjects := make([]runtime.Object, len(objects))
+	for i, obj := range objects {
+		runtimeObjects[i] = obj
+	}
 	dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, map[schema.GroupVersionResource]string{
-		DefaultGVR: "ChangeRequestList",
-	}, obj)
+		DefaultGVR: "ChangeRequestList", ApprovalDecisionGVR: "ApprovalDecisionList",
+	}, runtimeObjects...)
 	return NewReconciler(dc)
 }
 
@@ -192,5 +198,153 @@ func TestReconcileDeletedCRDropsQueueItem(t *testing.T) {
 	r := newFake(t, newFakeCR("Pending", false))
 	if err := r.Reconcile(context.Background(), "default", "does-not-exist"); err != nil {
 		t.Fatalf("NotFound 应静默丢弃队列项，得到：%v", err)
+	}
+}
+
+func TestReconcileInitializesAwaitingApproval(t *testing.T) {
+	obj := newFakeCR("", false)
+	requireApproval(obj)
+	r := newFake(t, obj)
+	if err := r.Reconcile(context.Background(), "default", "cr-test"); err != nil {
+		t.Fatal(err)
+	}
+	cr := getCR(t, r)
+	if cr.Status.State != aegisv1.StateAwaitingApproval || cr.Status.Approval.State != "Pending" || !cr.Status.Approval.Required {
+		t.Fatalf("unexpected initialization: %+v", cr.Status)
+	}
+}
+
+func TestReconcileApprovedDecisionExecutes(t *testing.T) {
+	obj := newFakeCR("AwaitingApproval", false)
+	requireApproval(obj)
+	r := newFake(t, obj, approvalDecisionForTest("uid-cr-test", "Approved"))
+	executor := &fakeExec{}
+	r.Executor = executor
+	if err := r.Reconcile(context.Background(), "default", "cr-test"); err != nil {
+		t.Fatal(err)
+	}
+	cr := getCR(t, r)
+	if cr.Status.State != aegisv1.StateCommitted || cr.Status.Approval.State != "Approved" ||
+		cr.Status.Approval.Approver != "bob" || executor.executed != 1 {
+		t.Fatalf("state=%s approval=%+v executed=%d", cr.Status.State, cr.Status.Approval, executor.executed)
+	}
+}
+
+func TestReconcileDeniedDecisionRejects(t *testing.T) {
+	obj := newFakeCR("AwaitingApproval", false)
+	requireApproval(obj)
+	r := newFake(t, obj, approvalDecisionForTest("uid-cr-test", "Denied"))
+	executor := &fakeExec{}
+	r.Executor = executor
+	if err := r.Reconcile(context.Background(), "default", "cr-test"); err != nil {
+		t.Fatal(err)
+	}
+	cr := getCR(t, r)
+	if cr.Status.State != aegisv1.StateRejected || cr.Status.Approval.State != "Denied" || executor.executed != 0 {
+		t.Fatalf("state=%s approval=%+v executed=%d", cr.Status.State, cr.Status.Approval, executor.executed)
+	}
+}
+
+func TestReconcileIgnoresDecisionForDifferentUID(t *testing.T) {
+	obj := newFakeCR("AwaitingApproval", false)
+	requireApproval(obj)
+	r := newFake(t, obj, approvalDecisionForTest("uid-recreated", "Approved"))
+	executor := &fakeExec{}
+	r.Executor = executor
+	if err := r.Reconcile(context.Background(), "default", "cr-test"); err != nil {
+		t.Fatal(err)
+	}
+	cr := getCR(t, r)
+	if cr.Status.State != aegisv1.StateAwaitingApproval || cr.Status.Approval.State == "Approved" || executor.executed != 0 {
+		t.Fatalf("state=%s approval=%+v executed=%d", cr.Status.State, cr.Status.Approval, executor.executed)
+	}
+}
+
+func TestReconcileDoesNotOverwriteExistingApproval(t *testing.T) {
+	obj := newFakeCR("AwaitingApproval", false)
+	requireApproval(obj)
+	obj.Object["status"] = map[string]any{
+		"state":    "AwaitingApproval",
+		"approval": map[string]any{"state": "Approved", "approver": "alice", "decidedAt": "2025-01-01T00:00:00Z"},
+	}
+	r := newFake(t, obj, approvalDecisionForTest("uid-cr-test", "Approved"))
+	executor := &fakeExec{}
+	r.Executor = executor
+	if err := r.Reconcile(context.Background(), "default", "cr-test"); err != nil {
+		t.Fatal(err)
+	}
+	cr := getCR(t, r)
+	if cr.Status.Approval.Approver != "alice" {
+		t.Fatalf("existing approval was overwritten: %+v", cr.Status.Approval)
+	}
+}
+
+func requireApproval(obj *unstructured.Unstructured) {
+	spec, _ := obj.Object["spec"].(map[string]any)
+	spec["approval"] = map[string]any{"required": true, "state": "Pending", "channel": "cli"}
+}
+
+func approvalDecisionForTest(uid, decision string) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "aegis.dev/v1alpha1", "kind": "ApprovalDecision",
+		"metadata": map[string]any{
+			"name": "ad-test", "namespace": "default",
+			"labels": map[string]any{"aegis.dev/change-request": "cr-test"},
+		},
+		"spec": map[string]any{
+			"changeRequestRef": map[string]any{"namespace": "default", "name": "cr-test", "uid": uid},
+			"approver":         "bob", "decision": decision, "channel": "cli",
+			"decidedAt": "2026-01-01T00:00:00Z", "evidenceHash": "sha256:test",
+		},
+	}}
+}
+
+type rvTrackingClient struct {
+	dynamic.Interface
+}
+
+func (c *rvTrackingClient) Resource(gvr schema.GroupVersionResource) dynamic.NamespaceableResourceInterface {
+	return &rvTrackingResource{ResourceInterface: c.Interface.Resource(gvr), namespaceable: c.Interface.Resource(gvr)}
+}
+
+type rvTrackingResource struct {
+	dynamic.ResourceInterface
+	namespaceable dynamic.NamespaceableResourceInterface
+}
+
+func (r *rvTrackingResource) Namespace(namespace string) dynamic.ResourceInterface {
+	return &rvTrackingResource{ResourceInterface: r.namespaceable.Namespace(namespace), namespaceable: r.namespaceable}
+}
+
+func (r *rvTrackingResource) Update(
+	ctx context.Context,
+	obj *unstructured.Unstructured,
+	options metav1.UpdateOptions,
+	subresources ...string,
+) (*unstructured.Unstructured, error) {
+	obj.SetResourceVersion("2")
+	return r.ResourceInterface.Update(ctx, obj, options, subresources...)
+}
+
+func (r *rvTrackingResource) UpdateStatus(
+	ctx context.Context,
+	obj *unstructured.Unstructured,
+	options metav1.UpdateOptions,
+) (*unstructured.Unstructured, error) {
+	if obj.GetResourceVersion() != "2" {
+		return nil, fmt.Errorf("stale resource version %s", obj.GetResourceVersion())
+	}
+	obj.SetResourceVersion("3")
+	return r.ResourceInterface.UpdateStatus(ctx, obj, options)
+}
+
+func TestReconcileUsesUpdatedResourceVersion(t *testing.T) {
+	obj := newFakeCR("", false)
+	dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{
+		DefaultGVR: "ChangeRequestList", ApprovalDecisionGVR: "ApprovalDecisionList",
+	}, obj)
+	r := NewReconciler(&rvTrackingClient{dc})
+	if err := r.Reconcile(context.Background(), "default", "cr-test"); err != nil {
+		t.Fatalf("initialization used stale resource version: %v", err)
 	}
 }

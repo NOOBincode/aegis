@@ -28,7 +28,7 @@ gatekeeper 是 Agent 与集群之间唯一的写路径，也是读路径的统�
 
 **装配的 adapters**：`internal/adapters/k8s`（client-go，读写 apiserver）、`internal/adapters/opa`、`internal/adapters/mcp`（对 L1 工具层的出站调用）、`internal/adapters/redis`（会话/预算计数，§3.3 选型）、`internal/adapters/langfuse`（LLM 调用链引用上送）。
 
-**进程职责清单**：① MCP 代理监听（含 mTLS、签名信封、会话内序号，§4.2.5-4）；② 写路径同步判定流水线；③ ChangeRequest 落库（idempotencyKey 派生 CR 名，F15）；④ 读路径代理（消毒 + 双限流 + 分页引导）；⑤ 读路径降级直连开关与降级态标注（I10）；⑥ 探针与优雅退出（骨架见 `cmd/README.md` §4）。
+**进程职责清单**：① MCP 代理监听（含 mTLS、签名信封、会话内序号，§4.2.5-4）；② 写路径同步判定流水线；③ ChangeRequest spec 与不可变 ApprovalDecision 落库（idempotencyKey 派生 CR 名，F15；ChangeRequest status 仅由 controller 写入）；④ 读路径代理（消毒 + 双限流 + 分页引导）；⑤ 读路径降级直连开关与降级态标注（I10）；⑥ 探针与优雅退出（骨架见 `cmd/README.md` §4）。
 
 **任务对照**：T2.2（risk-classifier）、T2.3（opa-eval）、T2.4（approval-svc 联调）、T2.5（rollbacker）、T2.6（breaker/quota）、T2.7（sanitizer 收敛）、T2.11（幂等与失效语义）、T2.12（冷却期校验的配合执行点）。
 
@@ -58,7 +58,7 @@ gatekeeper 是 Agent 与集群之间唯一的写路径，也是读路径的统�
 7. 爆炸半径配额：estBlastRadius 对 GuardrailPolicy `blastRadiusQuota` 硬上限（I7），超限拒绝。
 8. circuit-breaker：熔断状态为 open 时 R1+ 一律拒绝并提示降级态（§4.2.2）；变更频率阈值同在此检查。
 9. rollbacker：生成 inverseOperation 并 dry-run 验证；无法生成或验证失败 → 自动升 R2（I5/红队 R2 整改）。
-10. 落 ChangeRequest：CR 名由 `idempotencyKey` 哈希派生（F15）；状态初始按级别置 Pending/DryRunning/AwaitingApproval；R2 附带诊断链 + 影响面报告供人审（§4.2.1）。
+10. 落 ChangeRequest：CR 名由 `idempotencyKey` 哈希派生（F15）；提交时只写 spec，controller 按级别初始化 Pending/AwaitingApproval 并独占后续 status 写入；R2 经不可变 ApprovalDecision 提供人审证据。
 11. 同步返回：向 Agent 返回判定结果（放行指令 / 等待审批 / 拒绝原因）。**执行不在闸门**：放行后的窄调用由 controller 状态机推进（见下"职责切分"）。
 
 **读路径**：代理 → 双限流（会话 token 预算 + apiserver QPS 预算，F5）→ 结果集硬上限（单次 ≤500 行日志 / ≤200 对象，§4.1）→ log-sanitizer 包裹 `<untrusted_cluster_data>` 并做注入模式检测（I4）→ 返回。命中注入模式 → 告警，且该数据衍生的任何动作自动升 R2（F2）。
@@ -73,7 +73,7 @@ gatekeeper 是 Agent 与集群之间唯一的写路径，也是读路径的统�
 | --- | --- | --- |
 | 路径性质 | 同步判定链路（请求内完成） | 异步状态机推进（reconcile） |
 | 持有的状态 | 零业务状态，只有配置与缓存 | CR 状态机事实，status 唯一写者 |
-| 写 apiserver | 创建 ChangeRequest（spec 与初始 status） | 推进 status、写 finalizer、写 DecisionRecord 关联 |
+| 写 apiserver | 创建 ChangeRequest（spec）与不可变 ApprovalDecision | 初始化/推进 ChangeRequest status、写 finalizer、写 DecisionRecord 关联 |
 | 执行与验证 | 不执行写操作 | 驱动 Executing→Verifying→Committed/RolledBack，在途恢复（§4.2.5-3） |
 | 交互方式 | 经 apiserver 的 CR 契约，**无私有 RPC** | 同左 |
 
@@ -130,14 +130,14 @@ gatekeeper 是 Agent 与集群之间唯一的写路径，也是读路径的统�
 
 ## 7. 依赖方向与模块边界
 
-- **谁调我**：L3 Agent 运行时（kagent 二开）经 MCP 协议强制途经（§3.1）；aegis-cli 不调本进程（CLI 走 apiserver 视图，见 `cmd/aegis-cli/README.md`）。
+- **谁调我**：L3 Agent 运行时（kagent 二开）经 MCP 协议强制途经（§3.1）；aegis-cli 经 MCP 提交写意图、经审批 HTTP 提交决定，也经 apiserver 读取 CR 视图。
 - **我调谁**：apiserver（建 CR、读 GuardrailPolicy）；`internal/` 各上下文 service（经装配）；adapters（opa / mcp / redis / langfuse / k8s）；L1 工具层经 MCP 出站调用（进程间协议，非 Go import）。
 - **禁止依赖谁**：禁止 import `mcp-servers/*` 的 Go 包（工具执行是独立进程，见 `mcp-servers/README.md`，闸门只经 MCP 协议触达）；禁止 import `internal/controller` 的 reconcile 实现（状态机推进在 controller）；禁止 import 各上下文 `domain` 之外的私货——业务规则不得上移到装配层；禁止内嵌 LLM SDK（§3）。
 - **depguard 校验点**：本进程源码只允许出现在 cmd 白名单方向内；上下文 purity 规则约束的是 `internal/` 各包，本进程是规则的受益方而非豁免方。
 
 ## 8. 测试策略与红队用例
 
-本目录为装配层，无单测义务（覆盖率要求落在 `internal/` L2 包 ≥80%，aegis-go-quality）。验证手段：
+本目录为装配层；`mcp_test.go` 通过真实 MCP 协议校验 `request_change` 的输入 schema。核心领域覆盖率要求落在 `internal/` L2 包 ≥80%（aegis-go-quality）。验证手段：
 
 1. **kind 集成（M2 验收本体）**：三连演示脚本化（T2.13）——scale 全链路、恶意日志注入不越权且告警、删 namespace 硬拒。
 2. **fail-closed 用例（T2.11 完成判据）**：杀 gatekeeper 进程 / 断 apiserver 分区 → 写路径一律阻塞 + 告警，绝不放行；读降级态标注可观测。

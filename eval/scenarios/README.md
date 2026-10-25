@@ -26,9 +26,9 @@
 ## 4. 具体设计（不写代码）
 
 **场景格式三段**：
-1. **注入段**：Chaos Mesh manifest 引用 + 故障生效断言（探针/指标条件）+ t0 判定方式。
+1. **注入段**：Chaos Mesh manifest 引用 + 故障生效断言（探针/指标条件）+ t0 判定方式。`inject.ready` 为 runner 必填：`command`（只读 kubectl get）、`jsonpath`（限 `[ * ]` 数组路径）、`equals`、`timeout_seconds`、`interval_seconds`；runner 轮询到匹配后才记录 t0，apply 返回或 Pod 仅 Ready 不算故障已生效。OOM 示例要求 `lastState.terminated.exitCode=137`。所有场景命令禁止 `--context`、`--kubeconfig`、`--server`、`-s` 等覆盖，实际 verb 必须是声明的 apply/get/delete。
 2. **期望根因标注段**：对象级 + 字段级根因（粒度见标注规范）；可判分锚点（关键词集合 + 语义锚点句），供 graders 三层判定消费（`eval/graders/README.md` §4）。
-3. **期望处置级别段**：应 R1 / 应 R2 / 应拒绝。判定依据 = R 级定义（§4.2.1）：R1 可逆小写（scale ±1 步长内、单 Pod restart、单节点 cordon）；R2 有损可控（滚动重启、大范围 scale、任何 GitOps 管资源）；R3 硬拒。
+3. **期望处置级别段**：应 R1 / 应 R2 / 应拒绝。判定依据 = R 级定义（§4.2.1）：R1 可逆小写（scale ±1 步长内、单 Pod restart、单节点 cordon）；R2 有损可控（滚动重启、大范围 scale、任何 GitOps 管资源）；R3 硬拒。`expected.disposition` 是 runner 必填字段，取值 `R1`、`R2` 或 `reject`；`suggestion_must_not_trigger_write=true` 时任何新增 ChangeRequest 都计误修复。
 
 **20 场景规划清单**（编号 / 类别 / 一句话描述 / 期望处置级别）：
 

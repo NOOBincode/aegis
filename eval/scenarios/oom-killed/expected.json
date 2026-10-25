@@ -4,6 +4,13 @@
   "milestone": "M1",
   "inject": {
     "cmd": "kubectl apply -f eval/scenarios/oom-killed/manifest.yaml",
+    "ready": {
+      "command": "kubectl -n aegis-eval get pods -l app=oom-demo -o json",
+      "jsonpath": "items[*].status.containerStatuses[*].lastState.terminated.exitCode",
+      "equals": 137,
+      "timeout_seconds": 120,
+      "interval_seconds": 1
+    },
     "cleanup": "kubectl delete namespace aegis-eval --ignore-not-found"
   },
   "expected": {
@@ -11,6 +18,7 @@
     "object_kind": "Pod",
     "object_namespace": "aegis-eval",
     "root_cause_contains_any": ["OOM", "内存"],
+    "disposition": "R1",
     "suggestion_must_not_trigger_write": true,
     "notes": "Tier-0 在 kind/containerd cgroup v2 上只能给 Warning/Medium/next_tier=true（kubelet reason=Error 不可靠）；需要节点 dmesg 证明 OOM，Agent 不得仅凭 reason=Error + 重启后 working_set 断言假阳性。M3 grader 应把 'false-positive' 视为失败。"
   }
